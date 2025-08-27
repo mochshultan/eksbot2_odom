@@ -1,0 +1,81 @@
+# Arduino IDE build artifacts
+build/
+*.elf
+*.bin
+*.hex
+*.map
+
+# Arduino IDE temporary files
+*.tmp
+*.bak
+*~
+*.swp
+*.swo
+
+# Arduino IDE library cache
+libraries/
+hardware/
+
+# ESP32 specific build files
+*.partitions.bin
+bootloader.bin
+partition-table.bin
+
+# Compilation artifacts
+*.o
+*.obj
+*.so
+*.dll
+*.dylib
+*.a
+*.lib
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*~
+
+# Backup files
+*.backup
+*.orig
+
+# Log files
+*.log
+
+# Temporary documentation
+docs/build/
+
+# PlatformIO (if used)
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Arduino CLI build cache
+.arduino15/
+
+# Local configuration
+config.local.*
+secrets.h
+private.h
+
+# Test outputs
+test_results/
+coverage/
+/WARP.md
