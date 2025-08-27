@@ -547,3 +547,4 @@ Untuk improvement atau bug report, silakan buat issue atau pull request di repos
 ---
 
 **Dibuat dengan ❤️ untuk komunitas robotika Indonesia**
+*@mochshultan at trkb unair*
