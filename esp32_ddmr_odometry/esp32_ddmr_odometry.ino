@@ -193,12 +193,17 @@ void maju(double jarak) {
   if (navigationActive) return; // Prevent concurrent navigation
   
   navigationActive = true;
-  targetDistance = jarak;
+  targetDistance = abs(jarak); // Use absolute value for distance calculation
+  bool isForward = (jarak >= 0); // Determine direction
   moveForward = true;
   turnRobot = false;
   
   double startX = robotPose.x;
   double startY = robotPose.y;
+  
+  Serial.print(isForward ? "Moving forward " : "Moving backward ");
+  Serial.print(targetDistance);
+  Serial.println(" meters");
   
   while (moveForward && navigationActive) {
     double currentDistance = sqrt(pow(robotPose.x - startX, 2) + pow(robotPose.y - startY, 2));
@@ -218,7 +223,13 @@ void maju(double jarak) {
       speed = max(speed, 50);
     }
     
-    setMotorSpeed(speed, speed);
+    // Apply direction: forward (positive) or backward (negative)
+    if (isForward) {
+      setMotorSpeed(speed, speed);   // Forward
+    } else {
+      setMotorSpeed(-speed, -speed); // Backward
+    }
+    
     vTaskDelay(pdMS_TO_TICKS(10));
   }
   
@@ -313,8 +324,9 @@ void ledTask(void *parameter) {
     digitalWrite(LED_PIN, HIGH);
     vTaskDelay(pdMS_TO_TICKS(500));
     digitalWrite(LED_PIN, LOW);
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(250));
   }
+
 }
 
 // ========== SETUP AND LOOP ==========
@@ -471,7 +483,13 @@ void loop() {
     else if (command.length() > 0) {
       Serial.println("Unknown command");
     }
+  } else {
+    delay(1000);
+    // tulis misi di sini reizo
+    maju(1.0); 
+    belok(90); // kiri
+    belok(-90); // kanan
+    maju(-1.0); // mundur
   }
-  
   delay(100);
 }
