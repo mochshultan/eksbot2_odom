@@ -18,36 +18,38 @@
 
 // ========== PIN DEFINITIONS ==========
 // TB6612FNG Motor Driver Pins
-#define MOTOR_LEFT_PWM    25    // PWMA - Left motor PWM
+#define MOTOR_LEFT_PWM    12    // PWMA - Left motor PWM
 #define MOTOR_LEFT_IN1    26    // AIN1 - Left motor direction 1
 #define MOTOR_LEFT_IN2    27    // AIN2 - Left motor direction 2
-#define MOTOR_RIGHT_PWM   32    // PWMB - Right motor PWM
+#define MOTOR_RIGHT_PWM   16    // PWMB - Right motor PWM
 #define MOTOR_RIGHT_IN1   33    // BIN1 - Right motor direction 1
-#define MOTOR_RIGHT_IN2   14    // BIN2 - Right motor direction 2
-#define MOTOR_STBY        12    // STBY - Standby pin (HIGH to enable)
+#define MOTOR_RIGHT_IN2   32    // BIN2 - Right motor direction 2
+#define MOTOR_STBY        25    // STBY - Standby pin (HIGH to enable)
 
 // Encoder Pins (Interrupt capable pins)
-#define ENCODER_LEFT_A    18    // Left encoder phase A
-#define ENCODER_LEFT_B    19    // Left encoder phase B
-#define ENCODER_RIGHT_A   21    // Right encoder phase A
-#define ENCODER_RIGHT_B   22    // Right encoder phase B
+#define ENCODER_LEFT_A    14    // Left encoder phase A
+#define ENCODER_LEFT_B    13    // Left encoder phase B
+#define ENCODER_RIGHT_A   5    // Right encoder phase A
+#define ENCODER_RIGHT_B   17    // Right encoder phase B
 
 // LED Pin
-#define LED_PIN           2     // Built-in LED (D2)
-
+#define LED_PIN           2
 // ========== ROBOT PHYSICAL PARAMETERS ==========
 #define WHEEL_DIAMETER    0.065   // 65mm in meters
 #define WHEEL_CIRCUMFERENCE (PI * WHEEL_DIAMETER)
-#define WHEELBASE         0.15    // Distance between wheels (adjust to your robot)
+#define WHEELBASE         0.25    // Distance between wheels (adjust to your robot)
 
 // JGA25 Gearbox Parameters
 #define ENCODER_PPR       11      // Raw encoder PPR (before gearbox) - typical for JGA25
-#define GEAR_RATIO        298     // JGA25-370 gear ratio (common variants: 120, 298, 495, 1000)
+#define R_GEAR_RATIO        171     // JGA25-370 gear ratio (common variants: 120, 298, 495, 1000)
+#define L_GEAR_RATIO        171     // JGA25-370 gear ratio (common variants: 120, 298, 495, 1000)
+
 // Note: Different JGA25 variants have different gear ratios:
 // JGA25-370: 120:1, 298:1, 495:1, 1000:1
 // Check your motor specifications for exact ratio
 
-#define EFFECTIVE_PPR     (ENCODER_PPR * GEAR_RATIO)  // Total pulses per wheel revolution
+#define EFFECTIVE_PPR_R     (ENCODER_PPR * R_GEAR_RATIO)  // Total pulses per wheel revolution
+#define EFFECTIVE_PPR_L     (ENCODER_PPR * L_GEAR_RATIO)  // Total pulses per wheel revolution
 
 // ========== GLOBAL VARIABLES ==========
 // Encoder counters (volatile for interrupt access)
@@ -140,7 +142,9 @@ void setMotorSpeed(int leftSpeed, int rightSpeed) {
 }
 
 void stopMotors() {
+  digitalWrite(MOTOR_STBY, LOW);
   setMotorSpeed(0, 0);
+  digitalWrite(MOTOR_STBY, HIGH);
 }
 
 // ========== ODOMETRY FUNCTIONS ==========
@@ -159,8 +163,8 @@ void updateOdometry() {
   
   // Convert encoder counts to wheel distance considering gearbox ratio
   // Formula: distance = (encoder_pulses * wheel_circumference) / (encoder_ppr * gear_ratio)
-  double leftDistance = (deltaLeft * WHEEL_CIRCUMFERENCE) / EFFECTIVE_PPR;
-  double rightDistance = (deltaRight * WHEEL_CIRCUMFERENCE) / EFFECTIVE_PPR;
+  double leftDistance = (deltaLeft * WHEEL_CIRCUMFERENCE) / EFFECTIVE_PPR_L;
+  double rightDistance = (deltaRight * WHEEL_CIRCUMFERENCE) / EFFECTIVE_PPR_R;
   
   // Calculate robot motion
   double deltaDistance = (leftDistance + rightDistance) / 2.0;
@@ -193,7 +197,7 @@ void maju(double jarak) {
   if (navigationActive) return; // Prevent concurrent navigation
   
   navigationActive = true;
-  targetDistance = abs(jarak); // Use absolute value for distance calculation
+  targetDistance = abs(jarak*0.9); // Use absolute value for distance calculation
   bool isForward = (jarak >= 0); // Determine direction
   moveForward = true;
   turnRobot = false;
@@ -225,9 +229,9 @@ void maju(double jarak) {
     
     // Apply direction: forward (positive) or backward (negative)
     if (isForward) {
-      setMotorSpeed(speed, speed);   // Forward
+      setMotorSpeed(speed, speed-(speed/100));   // Forward
     } else {
-      setMotorSpeed(-speed, -speed); // Backward
+      setMotorSpeed(-speed, -(speed-(speed/100))); // Backward
     }
     
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -241,7 +245,7 @@ void belok(double derajat) {
   if (navigationActive) return; // Prevent concurrent navigation
   
   navigationActive = true;
-  targetAngle = derajat * PI / 180.0; // Convert to radians
+  targetAngle = (derajat * PI / 180.0)*0.88; // Convert to radians
   turnRobot = true;
   moveForward = false;
   
@@ -286,6 +290,8 @@ void belok(double derajat) {
   stopMotors();
   navigationActive = false;
 }
+
+// Fungsi Stepper Motor
 
 // ========== FREERTOS TASKS ==========
 void odometryTask(void *parameter) {
@@ -379,11 +385,11 @@ void setup() {
   Serial.print("- Wheel diameter: ");
   Serial.print(WHEEL_DIAMETER * 1000);
   Serial.println("mm");
-  Serial.print("- Gear ratio: ");
-  Serial.print(GEAR_RATIO);
+  // Serial.print("- Gear ratio: ");
+  // Serial.print(GEAR_RATIO);
   Serial.println(":1");
-  Serial.print("- Effective PPR: ");
-  Serial.println(EFFECTIVE_PPR);
+  // Serial.print("- Effective PPR: ");
+  // Serial.println(EFFECTIVE_PPR);
   Serial.println("\nAvailable commands:");
   Serial.println("- 'maju <jarak_meter>' : Move forward");
   Serial.println("- 'belok <derajat>' : Turn (positive = left, negative = right)");
@@ -445,14 +451,14 @@ void loop() {
       Serial.println(" mm");
       Serial.print("Encoder PPR (raw): ");
       Serial.println(ENCODER_PPR);
-      Serial.print("Gear ratio: ");
-      Serial.print(GEAR_RATIO);
+      // Serial.print("Gear ratio: ");
+      // Serial.print(GEAR_RATIO);
       Serial.println(":1");
-      Serial.print("Effective PPR: ");
-      Serial.println(EFFECTIVE_PPR);
-      Serial.print("Distance per pulse: ");
-      Serial.print((WHEEL_CIRCUMFERENCE / EFFECTIVE_PPR) * 1000000, 2);
-      Serial.println(" micrometers");
+      // Serial.print("Effective PPR: ");
+      // Serial.println(EFFECTIVE_PPR);
+      // Serial.print("Distance per pulse: ");
+      // Serial.print((WHEEL_CIRCUMFERENCE / EFFECTIVE_PPR) * 1000000, 2);
+      // Serial.println(" micrometers");
       
       if (xSemaphoreTake(poseMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         Serial.println("\n=== Current State ===");
@@ -486,10 +492,28 @@ void loop() {
   } else {
     delay(1000);
     // tulis misi di sini reizo
-    maju(1.0); 
+    maju(0.5);
+    delay(100);
+
     belok(90); // kiri
-    belok(-90); // kanan
-    maju(-1.0); // mundur
-  }
+    delay(100);
+
+    maju(0.5);
+    delay(100);
+
+    belok(90); // kiri
+    delay(100);
+
+    maju(0.5);
+    delay(100);
+
+    belok(90); // kiri
+    delay(100);
+
+    maju(0.5);
+    delay(100);
+
+    belok(90); // kiri
+    delay(100);  }
   delay(100);
 }
