@@ -16,18 +16,36 @@
 #include <freertos/semphr.h>
 #include <math.h>
 
+//stepper
+#define IN1 14
+#define IN2 23
+#define IN3 19
+#define IN4 18
+
+int stepSpeed = 500;
+
+int stepSequence[8][4] = {
+  {1,0,0,0},
+  {1,1,0,0},
+  {0,1,0,0},
+  {0,1,1,0},
+  {0,0,1,0},
+  {0,0,1,1},
+  {0,0,0,1},
+  {1,0,0,1}
+};
 // ========== PIN DEFINITIONS ==========
 // TB6612FNG Motor Driver Pins
-#define MOTOR_LEFT_PWM    12    // PWMA - Left motor PWM
+#define MOTOR_LEFT_PWM    12    // PWMA - Left motor PWM B
 #define MOTOR_LEFT_IN1    26    // AIN1 - Left motor direction 1
 #define MOTOR_LEFT_IN2    27    // AIN2 - Left motor direction 2
-#define MOTOR_RIGHT_PWM   16    // PWMB - Right motor PWM
+#define MOTOR_RIGHT_PWM   16    // PWMB - Right motor PWM A
 #define MOTOR_RIGHT_IN1   33    // BIN1 - Right motor direction 1
 #define MOTOR_RIGHT_IN2   32    // BIN2 - Right motor direction 2
 #define MOTOR_STBY        25    // STBY - Standby pin (HIGH to enable)
 
 // Encoder Pins (Interrupt capable pins)
-#define ENCODER_LEFT_A    14    // Left encoder phase A
+#define ENCODER_LEFT_A    35    // Left encoder phase A
 #define ENCODER_LEFT_B    13    // Left encoder phase B
 #define ENCODER_RIGHT_A   5    // Right encoder phase A
 #define ENCODER_RIGHT_B   17    // Right encoder phase B
@@ -245,7 +263,7 @@ void belok(double derajat) {
   if (navigationActive) return; // Prevent concurrent navigation
   
   navigationActive = true;
-  targetAngle = (derajat * PI / 180.0)*0.88; // Convert to radians
+  targetAngle = (derajat * PI / 180.0)*0.89; // Convert to radians
   turnRobot = true;
   moveForward = false;
   
@@ -292,7 +310,27 @@ void belok(double derajat) {
 }
 
 // Fungsi Stepper Motor
+void putarStepper(int jumlahPutaran, int arah) {
+  int totalStep = 4096 * jumlahPutaran; // 1 putaran = 4096 step
 
+  if (arah > 0) { // searah jarum jam
+    for (int step = 0; step < totalStep; step++) {
+      stepMotor(step % 8);
+      delayMicroseconds(stepSpeed);
+    }
+  } else { // berlawanan arah jarum jam
+    for (int step = totalStep; step > 0; step--) {
+      stepMotor(step % 8);
+      delayMicroseconds(stepSpeed);
+    }
+  }
+}
+void stepMotor(int stepIndex) {
+  digitalWrite(IN1, stepSequence[stepIndex][0]);
+  digitalWrite(IN2, stepSequence[stepIndex][1]);
+  digitalWrite(IN3, stepSequence[stepIndex][2]);
+  digitalWrite(IN4, stepSequence[stepIndex][3]);
+}
 // ========== FREERTOS TASKS ==========
 void odometryTask(void *parameter) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -352,6 +390,11 @@ void setup() {
   pinMode(ENCODER_RIGHT_A, INPUT_PULLUP);
   pinMode(ENCODER_RIGHT_B, INPUT_PULLUP);
   
+  //stepper
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
   // Attach interrupts
   attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A), leftEncoderISR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A), rightEncoderISR, CHANGE);
@@ -492,7 +535,15 @@ void loop() {
   } else {
     delay(1000);
     // tulis misi di sini reizo
-    maju(0.5);
+
+    putarStepper(4, 1); 
+    delay(1000);
+    maju(0.2);
+    delay(1000);
+    putarStepper(10,-1);//ccw = naik
+    delay(1000);
+
+    maju(0.3);
     delay(100);
 
     belok(90); // kiri
