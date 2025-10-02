@@ -15,26 +15,31 @@
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 #include <math.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <Wire.h>
 
-//stepper
+// ========== PIN DEFINITIONS ==========
+
+// Line Sensor Pins
+#define LINE_SENSOR_1     15    // D15
+#define LINE_SENSOR_2     2     // D2 
+#define LINE_SENSOR_3     4     // D4
+
+// ====== Stepper =======
 #define IN1 14
 #define IN2 23
 #define IN3 19
 #define IN4 18
 
-int stepSpeed = 500;
-
+int stepSpeed = 1000;
 int stepSequence[8][4] = {
-  {1,0,0,0},
-  {1,1,0,0},
-  {0,1,0,0},
-  {0,1,1,0},
-  {0,0,1,0},
-  {0,0,1,1},
-  {0,0,0,1},
-  {1,0,0,1}
+  {1,0,0,0}, {1,1,0,0},
+  {0,1,0,0}, {0,1,1,0},
+  {0,0,1,0}, {0,0,1,1},
+  {0,0,0,1}, {1,0,0,1}
 };
-// ========== PIN DEFINITIONS ==========
+
 // TB6612FNG Motor Driver Pins
 #define MOTOR_LEFT_PWM    12    // PWMA - Left motor PWM B
 #define MOTOR_LEFT_IN1    26    // AIN1 - Left motor direction 1
@@ -52,6 +57,7 @@ int stepSequence[8][4] = {
 
 // LED Pin
 #define LED_PIN           2
+
 // ========== ROBOT PHYSICAL PARAMETERS ==========
 #define WHEEL_DIAMETER    0.065   // 65mm in meters
 #define WHEEL_CIRCUMFERENCE (PI * WHEEL_DIAMETER)
@@ -100,6 +106,15 @@ volatile double targetDistance = 0.0;
 volatile double targetAngle = 0.0;
 volatile bool moveForward = false;
 volatile bool turnRobot = false;
+
+// Sensor variables
+Adafruit_MPU6050 mpu;
+volatile float gyroHeading = 0.0;
+
+volatile int lineSensorRaw[3] = {0, 0, 0};
+volatile int lineSensorDigital[3] = {0, 0, 0};
+SemaphoreHandle_t sensorMutex;
+int lineThreshold[3] = {300, 300, 300}; // Nilai threshold untuk setiap sensor, di atas threshold == hitam == 1
 
 // ========== INTERRUPT SERVICE ROUTINES ==========
 void IRAM_ATTR leftEncoderISR() {
@@ -212,20 +227,28 @@ void updateOdometry() {
 
 // ========== NAVIGATION FUNCTIONS ==========
 void maju(double jarak) {
-  if (navigationActive) return; // Prevent concurrent navigation
+  if (navigationActive) return; // Mencegah navigasi bersamaan
   
   navigationActive = true;
-  targetDistance = abs(jarak*0.9); // Use absolute value for distance calculation
-  bool isForward = (jarak >= 0); // Determine direction
+  targetDistance = abs(jarak*0.9); // Gunakan nilai absolut untuk kalkulasi jarak
+  bool isForward = (jarak >= 0); // Tentukan arah
   moveForward = true;
   turnRobot = false;
   
   double startX = robotPose.x;
   double startY = robotPose.y;
   
-  Serial.print(isForward ? "Moving forward " : "Moving backward ");
+  // Baca heading awal dari gyro
+  float startHeading;
+  if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    startHeading = gyroHeading;
+    xSemaphoreGive(sensorMutex);
+  }
+  
+  Serial.print(isForward ? "Maju " : "Mundur ");
   Serial.print(targetDistance);
-  Serial.println(" meters");
+  Serial.print(" meter, heading awal: ");
+  Serial.println(startHeading);
   
   while (moveForward && navigationActive) {
     double currentDistance = sqrt(pow(robotPose.x - startX, 2) + pow(robotPose.y - startY, 2));
@@ -237,19 +260,29 @@ void maju(double jarak) {
       break;
     }
     
-    // Simple proportional control
-    int speed = 150; // Base speed
+    // Kontrol proporsional untuk kecepatan
+    int speed = 150; // Kecepatan dasar
     double remainingDistance = targetDistance - currentDistance;
     if (remainingDistance < 0.1) {
       speed = (int)(speed * (remainingDistance / 0.1));
       speed = max(speed, 50);
     }
     
-    // Apply direction: forward (positive) or backward (negative)
+    // Koreksi heading menggunakan gyro
+    float currentHeading;
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+      currentHeading = gyroHeading;
+      xSemaphoreGive(sensorMutex);
+    }
+    
+    float headingError = startHeading - currentHeading;
+    int correction = (int)(headingError * 2); // Faktor koreksi
+    
+    // Terapkan arah dan koreksi heading
     if (isForward) {
-      setMotorSpeed(speed, speed-(speed/100));   // Forward
+      setMotorSpeed(speed + correction, speed - correction);   // Maju dengan koreksi
     } else {
-      setMotorSpeed(-speed, -(speed-(speed/100))); // Backward
+      setMotorSpeed(-speed - correction, -speed + correction); // Mundur dengan koreksi
     }
     
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -263,7 +296,7 @@ void belok(double derajat) {
   if (navigationActive) return; // Prevent concurrent navigation
   
   navigationActive = true;
-  targetAngle = (derajat * PI / 180.0)*0.89; // Convert to radians
+  targetAngle = (derajat * PI / 180.0)*0.88; // Convert to radians
   turnRobot = true;
   moveForward = false;
   
@@ -362,21 +395,116 @@ void odometryTask(void *parameter) {
 }
 
 void ledTask(void *parameter) {
-  Serial.println("LED task started on Core 1");
+  Serial.println("Sensor IMU &  task dimulai di Core 1");
   
-  while (true) {
-    digitalWrite(LED_PIN, HIGH);
-    vTaskDelay(pdMS_TO_TICKS(500));
-    digitalWrite(LED_PIN, LOW);
-    vTaskDelay(pdMS_TO_TICKS(250));
+  // Inisialisasi MPU6050, cek scl sda apa sdh nyambung
+  if (!mpu.begin()) {
+    Serial.println("Gagal menginisialisasi MPU6050!");
+    while (1) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+    }
   }
-
+  
+  // Konfigurasi MPU6050
+  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  mpu.setGyroRange(MPU6050_RANGE_500_DEG); // ini dipakai
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+  
+  Serial.println("MPU6050 berhasil diinisialisasi");
+  // Inisialisasi
+  float gyroZ_offset = 0;
+  float heading = 0;
+  unsigned long lastTime = millis();
+  
+  // Kalibrasi gyro (ambil offset)
+  Serial.println("Kalibrasi gyro, jangan gerakkan robot...");
+  for (int i = 0; i < 1000; i++) {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+    gyroZ_offset += g.gyro.z;
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  gyroZ_offset /= 100;
+  Serial.print("Offset gyro Z: ");
+  Serial.println(gyroZ_offset);
+  
+  while (true) { // memulai task utama
+    // Baca line sensor analog
+    int line1_raw = analogRead(LINE_SENSOR_1);
+    int line2_raw = analogRead(LINE_SENSOR_2);
+    int line3_raw = analogRead(LINE_SENSOR_3);
+    
+    // Konversi ke digital berdasarkan threshold
+    int line1_digital = (line1_raw > lineThreshold[0]) ? 1 : 0;
+    int line2_digital = (line2_raw > lineThreshold[1]) ? 1 : 0;
+    int line3_digital = (line3_raw > lineThreshold[2]) ? 1 : 0;
+    
+    // Baca gyro dan hitung heading
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+    
+    unsigned long currentTime = millis();
+    float dt = (currentTime - lastTime) / 1000.0; // detik
+    lastTime = currentTime;
+    
+    // Integrasikan gyro Z untuk mendapat heading
+    float gyroZ_corrected = g.gyro.z - gyroZ_offset;
+    heading += gyroZ_corrected * dt * 180.0 / PI; // konversi ke derajat
+    
+    // Normalisasi heading ke range -180 sampai 180
+    while (heading > 180) heading -= 360;
+    while (heading < -180) heading += 360;
+    
+    // Update variabel global dengan mutex
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+      lineSensorRaw[0] = line1_raw;
+      lineSensorRaw[1] = line2_raw;
+      lineSensorRaw[2] = line3_raw;
+      lineSensorDigital[0] = line1_digital;
+      lineSensorDigital[1] = line2_digital;
+      lineSensorDigital[2] = line3_digital;
+      gyroHeading = heading;
+      xSemaphoreGive(sensorMutex);
+    }
+    
+    // Tampilkan data sensor setiap 500ms
+    static unsigned long lastPrint = 0;
+    if (millis() - lastPrint > 500) {
+      Serial.print("Line Raw: ");
+      Serial.print(line1_raw);
+      Serial.print("-");
+      Serial.print(line2_raw);
+      Serial.print("-");
+      Serial.print(line3_raw);
+      Serial.print(" | Digital: ");
+      Serial.print(line1_digital);
+      Serial.print("-");
+      Serial.print(line2_digital);
+      Serial.print("-");
+      Serial.print(line3_digital);
+      Serial.print(" | Heading: ");
+      Serial.print(heading, 1);
+      Serial.println("°");
+      lastPrint = millis();
+    }
+    
+    // LED blink
+    static bool ledState = false;
+    static unsigned long lastLedToggle = 0;
+    if (millis() - lastLedToggle > 250) {
+      ledState = !ledState;
+      digitalWrite(LED_PIN, ledState);
+      lastLedToggle = millis();
+    }
+    
+    vTaskDelay(pdMS_TO_TICKS(20)); // 50Hz update rate
+  }
 }
 
 // ========== SETUP AND LOOP ==========
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  vTaskDelay(pdMS_TO_TICKS(1000));
   
   Serial.println("ESP32 DDMR Robot with FreeRTOS Starting...");
   
@@ -390,17 +518,26 @@ void setup() {
   pinMode(ENCODER_RIGHT_A, INPUT_PULLUP);
   pinMode(ENCODER_RIGHT_B, INPUT_PULLUP);
   
-  //stepper
+  // Setup line sensor
+  pinMode(LINE_SENSOR_1, INPUT);
+  pinMode(LINE_SENSOR_2, INPUT);
+  pinMode(LINE_SENSOR_3, INPUT);
+  
+  // Setup stepper
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
+  
+  // Inisialisasi I2C untuk MPU6050
+  Wire.begin();
   // Attach interrupts
   attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A), leftEncoderISR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A), rightEncoderISR, CHANGE);
   
   // Create mutex
   poseMutex = xSemaphoreCreateMutex();
+  sensorMutex = xSemaphoreCreateMutex();
   
   // Create tasks
   xTaskCreatePinnedToCore(
@@ -415,8 +552,8 @@ void setup() {
   
   xTaskCreatePinnedToCore(
     ledTask,            // Task function
-    "LedTask",          // Task name
-    2048,               // Stack size
+    "SensorTask",       // Task name
+    4096,               // Stack size (lebih besar untuk sensor)
     NULL,               // Parameter
     1,                  // Priority
     &ledTaskHandle,     // Task handle
@@ -533,38 +670,38 @@ void loop() {
       Serial.println("Unknown command");
     }
   } else {
-    delay(1000);
+    vTaskDelay(pdMS_TO_TICKS(1000));
     // tulis misi di sini reizo
 
     putarStepper(4, 1); 
-    delay(1000);
-    maju(0.2);
-    delay(1000);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    maju(0.1);
+    vTaskDelay(pdMS_TO_TICKS(1000));
     putarStepper(10,-1);//ccw = naik
-    delay(1000);
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
-    maju(0.3);
-    delay(100);
+    maju(0.4);
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     belok(90); // kiri
-    delay(100);
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     maju(0.5);
-    delay(100);
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     belok(90); // kiri
-    delay(100);
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     maju(0.5);
-    delay(100);
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     belok(90); // kiri
-    delay(100);
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     maju(0.5);
-    delay(100);
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     belok(90); // kiri
-    delay(100);  }
-  delay(100);
+    vTaskDelay(pdMS_TO_TICKS(100));  }
+  vTaskDelay(pdMS_TO_TICKS(100));
 }
