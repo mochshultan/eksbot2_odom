@@ -61,7 +61,7 @@ int stepSequence[8][4] = {
 // ========== ROBOT PHYSICAL PARAMETERS ==========
 #define WHEEL_DIAMETER    0.068   // 67mm in meters
 #define WHEEL_CIRCUMFERENCE (PI * WHEEL_DIAMETER)
-#define WHEELBASE         0.23    // Distance between wheels (adjust to your robot)
+#define WHEELBASE         0.225    // Distance between wheels (adjust to your robot)
 
 // JGA25 Gearbox Parameters
 #define ENCODER_PPR       11      // Raw encoder PPR (before gearbox) - typical for JGA25
@@ -108,29 +108,29 @@ volatile bool moveForward = false;
 volatile bool turnRobot = false;
 
 // PID parameters untuk gojek
-double kp_pos = 100.0;  // Proportional gain untuk posisi
-double ki_pos = 0.0;    // Integral gain untuk posisi
-double kd_pos = 10.0;   // Derivative gain untuk posisi
+double kp_pos = 2.0;  // Proportional gain untuk posisi
+double ki_pos = 0.001;    // Integral gain untuk posisi
+double kd_pos = 20.0;   // Derivative gain untuk posisi
 double prev_error_pos = 0.0;
 double integral_pos = 0.0;
 
 // PID parameters untuk ramping down
-double kp_dist = 800.0; // Proportional gain untuk jarak
-double ki_dist = 10.0;   // Integral gain untuk jarak
-double kd_dist = 80.0;  // Derivative gain untuk jarak
+double kp_dist = 300.0; // Proportional gain untuk jarak
+double ki_dist = 0.5;   // Integral gain untuk jarak
+double kd_dist = 6000.0;  // Derivative gain untuk jarak
 double prev_error_dist = 0.0;
 double integral_dist = 0.0;
 
-double kp_angle = 10.0; // Proportional gain untuk sudut
-double ki_angle = 0.1;   // Integral gain untuk sudut
-double kd_angle = 5.0;  // Derivative gain untuk sudut
+double kp_angle = 2.0; // Proportional gain untuk sudut
+double ki_angle = 0.001;   // Integral gain untuk sudut
+double kd_angle = 20.0;  // Derivative gain untuk sudut
 double prev_error_angle = 0.0;
 double integral_angle = 0.0;
 
 // PID parameters untuk koreksi gyro yang smooth
-double kp_gyro = 30.0;   // Proportional gain untuk koreksi gyro
+double kp_gyro = 3.0;   // Proportional gain untuk koreksi gyro
 double ki_gyro = 0.3;    // Integral gain untuk koreksi gyro
-double kd_gyro = 3.0;    // Derivative gain untuk koreksi gyro
+double kd_gyro = 60.0;    // Derivative gain untuk koreksi gyro
 double prev_error_gyro = 0.0;
 double integral_gyro = 0.0;
 
@@ -273,7 +273,7 @@ void maju(double jarak) {
   // Baca heading awal dari gyro
   float startHeading;
   if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-    startHeading = gyroHeading;
+    startHeading = gyroHeading ;
     xSemaphoreGive(sensorMutex);
   }
   
@@ -287,7 +287,7 @@ void maju(double jarak) {
     
     double remainingDistance = targetDistance - currentDistance;
     
-    if (remainingDistance <= 0.005) { // Toleransi 5mm
+    if (remainingDistance <= 0.01) { // Toleransi 5mm
       stopMotors();
       moveForward = false;
       navigationActive = false;
@@ -297,23 +297,27 @@ void maju(double jarak) {
     // PID control untuk ramping down yang smooth
     double error_dist = remainingDistance;
     integral_dist += error_dist;
+    integral_dist = constrain(integral_dist, -200, 200);
     double derivative_dist = error_dist - prev_error_dist;
-    
-    double speed_output = kp_dist * error_dist + ki_dist * integral_dist + kd_dist * derivative_dist;
-    int speed = constrain((int)speed_output, 10, 150);
-    
     prev_error_dist = error_dist;
     
+    double speed_output = kp_dist * error_dist + ki_dist * integral_dist + kd_dist * derivative_dist;
+    int speed = constrain((int)speed_output, 20, 220);
+        
     // Koreksi heading menggunakan gyro
-    float currentHeading;
-    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+    float currentHeading = startHeading; // Default ke startHeading
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
       currentHeading = gyroHeading;
       xSemaphoreGive(sensorMutex);
     }
     
     float headingError = startHeading - currentHeading;
-    int correction = (int)(headingError * 4); // Faktor koreksi
-    
+    // Normalisasi ke rentang -180 s.d. 180
+    if (headingError > 180.0f)  headingError -= 360.0f;
+    if (headingError < -180.0f) headingError += 360.0f;
+    Serial.println(headingError);
+    int correction = (int)(headingError * 25);
+
     // Terapkan arah dan koreksi heading
     if (isForward) {
       setMotorSpeed(speed + correction, speed - correction);   // Maju dengan koreksi
@@ -321,9 +325,67 @@ void maju(double jarak) {
       setMotorSpeed(-speed - correction, -speed + correction); // Mundur dengan koreksi
     }
     
-    vTaskDelay(pdMS_TO_TICKS(5)); // 200Hz navigation loop
+    vTaskDelay(pdMS_TO_TICKS(20)); // 200Hz navigation loop
   }
   
+  stopMotors();
+
+  vTaskDelay(pdMS_TO_TICKS(50));
+
+  int maxCorrections = 1000;
+  int consecutiveSmallErrors = 0;
+  
+  for (int i = 0; i < maxCorrections; i++) {
+    float currentHeading;
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      currentHeading = gyroHeading;
+      xSemaphoreGive(sensorMutex);
+    }
+    
+    float errorHeading = startHeading - currentHeading;
+    
+    // Normalisasi error
+    if (errorHeading > 180) {
+      errorHeading -= 360;
+    } else if (errorHeading <= -180) {
+      errorHeading += 360;
+    }
+    
+    // Anti-jiggle
+    if (abs(errorHeading) < 0.2) {
+      consecutiveSmallErrors++;
+      if (consecutiveSmallErrors >= 3) {
+        Serial.print("✓ Gyro correction selesai | Final error: ");
+        Serial.print(errorHeading, 2);
+        Serial.println("°");
+        break;
+      }
+    } else {
+      consecutiveSmallErrors = 0;
+    }
+    
+    // PID
+    double error_gyro = errorHeading;
+    integral_gyro += error_gyro;
+    integral_gyro = constrain(integral_gyro, -20, 20);
+    
+    double derivative_gyro = error_gyro - prev_error_gyro;
+    prev_error_gyro = error_gyro;
+    
+    double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
+    int correctionSpeed = constrain(abs((int)correction_output), 40, 70);
+        
+    // GYRO: errorHeading < 0 → heading perlu naik → CCW
+    if (errorHeading < 0) {
+      setMotorSpeed(-correctionSpeed, correctionSpeed);
+    } else {
+      setMotorSpeed(correctionSpeed, -correctionSpeed);
+    }
+    
+    vTaskDelay(pdMS_TO_TICKS(10));
+    stopMotors();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
   stopMotors();
   navigationActive = false;
 }
@@ -396,12 +458,11 @@ void belok(double derajat) {
     integral_angle += error_angle;
     integral_angle = constrain(integral_angle, -10, 10);
     double derivative_angle = error_angle - prev_error_angle;
-    
-    double turn_output = kp_angle * abs(error_angle) + ki_angle * integral_angle + kd_angle * abs(derivative_angle);
-    int turnSpeed = constrain((int)turn_output, 50, 200);
-    
     prev_error_angle = error_angle;
     
+    double turn_output = kp_angle * abs(error_angle) + ki_angle * integral_angle + kd_angle * abs(derivative_angle);
+    int turnSpeed = constrain((int)turn_output, 40, 175);
+        
     // remainingAngle > 0 → theta perlu naik → CCW (kiri)
     if (remainingAngle > 0) {
       setMotorSpeed(-turnSpeed, turnSpeed); // CCW
@@ -409,7 +470,7 @@ void belok(double derajat) {
       setMotorSpeed(turnSpeed, -turnSpeed); // CW
     }
     
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
   stopMotors();
 
@@ -436,7 +497,7 @@ void belok(double derajat) {
   Serial.print(currentHeadingNow, 2);
   Serial.println("°");
   
-  int maxCorrections = 100;
+  int maxCorrections = 1000;
   int consecutiveSmallErrors = 0;
   
   for (int i = 0; i < maxCorrections; i++) {
@@ -456,7 +517,7 @@ void belok(double derajat) {
     }
     
     // Anti-jiggle
-    if (abs(errorHeading) < 0.3) {
+    if (abs(errorHeading) < 0.2) {
       consecutiveSmallErrors++;
       if (consecutiveSmallErrors >= 3) {
         Serial.print("✓ Gyro correction selesai | Final error: ");
@@ -476,7 +537,7 @@ void belok(double derajat) {
     double derivative_gyro = error_gyro - prev_error_gyro;
     
     double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 50, 70);
+    int correctionSpeed = constrain(abs((int)correction_output), 30, 50);
     
     prev_error_gyro = error_gyro;
     
@@ -530,7 +591,7 @@ void belok(double derajat) {
   Serial.print(targetHeading - finalHeading, 2);
   Serial.println("°)");
   Serial.println("==================");
-  vTaskDelay(pdMS_TO_TICKS(250));
+  vTaskDelay(pdMS_TO_TICKS(500));
 }
 
 // Fungsi gojek - navigasi ke pose target dengan 3 tahap
@@ -910,34 +971,27 @@ void loop() {
     }
   } 
   else {
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(1500));
     while(true){
     // tulis misi di sini reizo
     // putarStepper(4, 1); //cw turun
 
-    // maju(0.6);
+    maju(1.0);
+    belok(180);
+    maju(1.0);
+    belok(180);
     // vTaskDelay(pdMS_TO_TICKS(100));
-    belok(180);
-    belok(-180);
-    belok(90);
-    belok(-90);
-    belok(45);
-    belok(-45);
-    belok(-135);
-    belok(135);
-    belok(-90);
-    belok(90);
-    belok(-45);
-    belok(135);
-    belok(-90);
-    belok(135);
-    belok(-45);
-    belok(180);
-    belok(135);
-    belok(-135);
-    belok(90);
+    // belok(-45);
+    // belok(135);
+    // belok(-90);
+    // belok(135);
+    // belok(-45);
+    // belok(180);
+    // belok(135);
+    // belok(-135);
+    // belok(90);
 
-    while(true);
+    // while(true);
     }
   }
   vTaskDelay(pdMS_TO_TICKS(100));
