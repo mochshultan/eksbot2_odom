@@ -32,7 +32,7 @@
 #define IN3 19
 #define IN4 18
 
-int stepSpeed = 1000;
+int stepSpeed = 900;
 int stepSequence[8][4] = {
   {1,0,0,0}, {1,1,0,0},
   {0,1,0,0}, {0,1,1,0},
@@ -115,8 +115,8 @@ double prev_error_pos = 0.0;
 double integral_pos = 0.0;
 
 // PID parameters untuk ramping down
-double kp_dist = 300.0; // Proportional gain untuk jarak
-double ki_dist = 0.5;   // Integral gain untuk jarak
+double kp_dist = 100.0; // Proportional gain untuk jarak
+double ki_dist = 0.75;  // Integral gain untuk jarak
 double kd_dist = 6000.0;  // Derivative gain untuk jarak
 double prev_error_dist = 0.0;
 double integral_dist = 0.0;
@@ -287,7 +287,7 @@ void maju(double jarak) {
     
     double remainingDistance = targetDistance - currentDistance;
     
-    if (remainingDistance <= 0.01) { // Toleransi 5mm
+    if (remainingDistance <= 0.007) { // Toleransi 5mm
       stopMotors();
       moveForward = false;
       navigationActive = false;
@@ -447,7 +447,7 @@ void belok(double derajat) {
       lastPrint = millis();
     }
     
-    if (abs(remainingAngle) < 2) { // 2 derajat toleransi
+    if (abs(remainingAngle) < 1) { // 2 derajat toleransi
       stopMotors();
       turnRobot = false;
       Serial.println("✓ Fase odometry selesai");
@@ -461,7 +461,7 @@ void belok(double derajat) {
     prev_error_angle = error_angle;
     
     double turn_output = kp_angle * abs(error_angle) + ki_angle * integral_angle + kd_angle * abs(derivative_angle);
-    int turnSpeed = constrain((int)turn_output, 40, 175);
+    int turnSpeed = constrain((int)turn_output, 30, 100);
         
     // remainingAngle > 0 → theta perlu naik → CCW (kiri)
     if (remainingAngle > 0) {
@@ -537,7 +537,7 @@ void belok(double derajat) {
     double derivative_gyro = error_gyro - prev_error_gyro;
     
     double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 30, 50);
+    int correctionSpeed = constrain(abs((int)correction_output), 30, 40);
     
     prev_error_gyro = error_gyro;
     
@@ -734,7 +734,7 @@ void ledTask(void *parameter) {
   
   // Konfigurasi MPU6050
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-  mpu.setGyroRange(MPU6050_RANGE_500_DEG); // ini dipakai
+  mpu.setGyroRange(MPU6050_RANGE_250_DEG); // ini dipakai
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   
   Serial.println("MPU6050 berhasil diinisialisasi");
@@ -745,13 +745,13 @@ void ledTask(void *parameter) {
   
   // Kalibrasi gyro (ambil offset)
   Serial.println("Kalibrasi gyro, jangan gerakkan robot...");
-  for (int i = 0; i < 250; i++) {
+  for (int i = 0; i < 200; i++) {
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
     gyroZ_offset += g.gyro.z;
     vTaskDelay(pdMS_TO_TICKS(10));
   }
-  gyroZ_offset /= 250;
+  gyroZ_offset /= 200;
   Serial.print("Offset gyro Z: ");
   Serial.println(gyroZ_offset);
   
@@ -832,7 +832,19 @@ void ledTask(void *parameter) {
     vTaskDelay(pdMS_TO_TICKS(20)); // 50Hz update rate
   }
 }
+void taskstorage(){
+  belok(90);
+  maju(1.3);
+  putarStepper(3,-1);
+  belok(90);
+  belok(90);
+  maju(1.6);
+  vTaskDelay(pdMS_TO_TICKS(50));
+  putarStepper(2,1);
+  belok(90);
+  maju(0.15);
 
+}
 // ========== SETUP AND LOOP ==========
 void setup() {
   Serial.begin(115200);
@@ -976,20 +988,22 @@ void loop() {
     // tulis misi di sini reizo
     // putarStepper(4, 1); //cw turun
 
-    maju(1.0);
-    belok(180);
-    maju(1.0);
-    belok(180);
-    // vTaskDelay(pdMS_TO_TICKS(100));
-    // belok(-45);
-    // belok(135);
-    // belok(-90);
-    // belok(135);
-    // belok(-45);
-    // belok(180);
-    // belok(135);
-    // belok(-135);
+    
     // belok(90);
+    // vTaskDelay(pdMS_TO_TICKS(100));
+    // belok(90);
+    // vTaskDelay(pdMS_TO_TICKS(100));
+    // belok(-90);
+    // vTaskDelay(pdMS_TO_TICKS(100));
+    // belok(-90);
+    // vTaskDelay(pdMS_TO_TICKS(100));
+    maju(0.4);
+    belok(-90);
+    maju(0.3);
+    taskstorage();
+    taskstorage();
+    taskstorage();
+    
 
     // while(true);
     }
