@@ -116,14 +116,14 @@ double integral_pos = 0.0;
 
 // PID parameters untuk ramping down
 double kp_dist = 75.0; // Proportional gain untuk jarak
-double ki_dist = 0.55;  // Integral gain untuk jarak
-double kd_dist = 1000.0;  // Derivative gain untuk jarak
+double ki_dist = 0.75;  // Integral gain untuk jarak
+double kd_dist = 1200.0;  // Derivative gain untuk jarak
 double prev_error_dist = 0.0;
 double integral_dist = 0.0;
 
 double kp_angle = 2.0; // Proportional gain untuk sudut
 double ki_angle = 0.001;   // Integral gain untuk sudut
-double kd_angle = 25.0;  // Derivative gain untuk sudut
+double kd_angle = 30.0;  // Derivative gain untuk sudut
 double prev_error_angle = 0.0;
 double integral_angle = 0.0;
 
@@ -143,7 +143,7 @@ float homeHeading = 0.0; // Heading home reference
 volatile int lineSensorRaw[3] = {0, 0, 0};
 volatile int lineSensorDigital[3] = {0, 0, 0};
 SemaphoreHandle_t sensorMutex;
-int lineThreshold[3] = {400, 400, 400}; // Nilai threshold untuk setiap sensor, di atas threshold == hitam == 1
+int lineThreshold[3] = {850, 750, 1650}; // Nilai threshold untuk setiap sensor, di atas threshold == hitam == 1
 
 // ========== INTERRUPT SERVICE ROUTINES ==========
 void IRAM_ATTR leftEncoderISR() {
@@ -326,7 +326,7 @@ void maju(double jarak) {
     prev_error_dist = error_dist;
     
     double speed_output = kp_dist * error_dist + ki_dist * integral_dist + kd_dist * derivative_dist;
-    int speed = constrain((int)speed_output, 10, 220);
+    int speed = constrain((int)speed_output, 25, 225);
         
     // Koreksi heading menggunakan gyro
     if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -397,7 +397,7 @@ void maju(double jarak) {
     prev_error_gyro = error_gyro;
     
     double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 40, 70);
+    int correctionSpeed = constrain(abs((int)correction_output), 40, 60);
         
     // GYRO: errorHeading < 0 → heading perlu naik → CCW
     if (errorHeading < 0) {
@@ -523,7 +523,7 @@ void belok(double derajat) {
   Serial.print(currentHeadingNow, 2);
   Serial.println("°");
   
-  int maxCorrections = 10000;
+  int maxCorrections = 1000;
   int consecutiveSmallErrors = 0;
   
   for (int i = 0; i < maxCorrections; i++) {
@@ -543,7 +543,7 @@ void belok(double derajat) {
     }
     
     // Anti-jiggle
-    if (abs(errorHeading) < 0.2) {
+    if (abs(errorHeading) < 0.21) {
       consecutiveSmallErrors++;
       if (consecutiveSmallErrors >= 3) {
         Serial.print("✓ Gyro correction selesai | Final error: ");
@@ -563,7 +563,7 @@ void belok(double derajat) {
     double derivative_gyro = error_gyro - prev_error_gyro;
     
     double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 10, 50);
+    int correctionSpeed = constrain(abs((int)correction_output), 40, 50);
     
     prev_error_gyro = error_gyro;
     
@@ -742,7 +742,7 @@ void gojek(double targetX, double targetY, double targetTheta) {
     prev_error_gyro = error_gyro;
     
     double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 30, 120);
+    int correctionSpeed = constrain(abs((int)correction_output), 40, 70);
     
     if (errorHeading < 0) {
       setMotorSpeed(-correctionSpeed, correctionSpeed);
@@ -933,7 +933,7 @@ void taskstorage(){
   putarStepper(2,1);
   maju(-0.15);
   belok(90);
-  maju(0.15);
+  maju(0.125);
   belok(90);
   maju(-0.15);
 }
@@ -1090,7 +1090,7 @@ void loop() {
     taskstorage();
     taskstorage();
     taskstorage();
-    // while(true);
+    while(true);
     }
   }
   vTaskDelay(pdMS_TO_TICKS(100));
