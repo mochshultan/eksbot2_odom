@@ -922,20 +922,51 @@ void ledTask(void *parameter) {
     vTaskDelay(pdMS_TO_TICKS(20)); // 50Hz update rate
   }
 }
-void taskstorage(){
-  maju(1.65);
-  putarStepper(3,-1);
-  maju(-0.15);
+
+void misiKanan(){
+  maju(0.18);
+  belok(-90);
+  maju(0.27);
   belok(90);
+
+  for (int i; i < 4; i++){
+    maju(1.65);
+    putarStepper(3,-1);
+    maju(-0.15);
+    belok(90);
+    belok(90);
+    maju(1.5);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    putarStepper(2,1);
+    maju(-0.15);
+    belok(90);
+    maju(0.125);
+    belok(90);
+    maju(-0.15);
+    }
+}
+
+void misiKiri(){
+  maju(0.18);
   belok(90);
-  maju(1.5);
-  vTaskDelay(pdMS_TO_TICKS(50));
-  putarStepper(2,1);
-  maju(-0.15);
-  belok(90);
-  maju(0.125);
-  belok(90);
-  maju(-0.15);
+  maju(0.27);
+  belok(-90);
+
+  for (int i; i < 4; i++) {
+    maju(1.65);
+    putarStepper(3,-1);
+    maju(-0.15);
+    belok(90);
+    belok(90);
+    maju(1.5);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    putarStepper(2,1);
+    maju(-0.15);
+    belok(-90);
+    maju(0.125);
+    belok(-90);
+    maju(-0.15);
+    }  
 }
 // ========== SETUP AND LOOP ==========
 void setup() {
@@ -1082,14 +1113,8 @@ void loop() {
     while(true){
     // tulis misi di sini reizo
     // putarStepper(4, 1); //cw turun
-  
-    maju(0.18);
-    belok(-90);
-    maju(0.27);
-    belok(90);
-    taskstorage();
-    taskstorage();
-    taskstorage();
+
+    misiKanan();
     while(true);
     }
   }
