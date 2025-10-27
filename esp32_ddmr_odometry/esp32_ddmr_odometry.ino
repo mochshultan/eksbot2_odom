@@ -117,8 +117,8 @@ double integral_pos = 0.0;
 
 // PID parameters untuk ramping down
 double kp_dist = 75.0;    // Proportional gain untuk jarak
-double ki_dist = 0.75;    // Integral gain untuk jarak
-double kd_dist = 1200.0;  // Derivative gain untuk jarak
+double ki_dist = 1.0;    // Integral gain untuk jarak
+double kd_dist = 700.0;  // Derivative gain untuk jarak
 double prev_error_dist = 0.0;
 double integral_dist = 0.0;
 
@@ -142,9 +142,9 @@ volatile unsigned long lastDriftCorrection = 0;
 float homeHeading = 0.0;  // Heading home reference
 
 volatile int lineSensorRaw[3] = { 0, 0, 0 };
-volatile int lineSensorDigital[3] = { 0, 0, 0 };
+volatile bool lineSensorDigital[3] = { 0, 0, 0 };
 SemaphoreHandle_t sensorMutex;
-int lineThreshold[3] = { 1200, 670, 1850 };  // Nilai threshold untuk setiap sensor, di atas threshold == hitam == 1
+int lineThreshold[3] = { 2600, 900, 2300 };  // Nilai threshold untuk setiap sensor, di atas threshold == hitam == 1
 
 // BLE variables
 BLEServer *pServer = NULL;
@@ -344,6 +344,7 @@ void maju(double jarak) {
     double remainingDistance = targetDistance - currentDistance;
 
     if (remainingDistance <= 0.005 || allSensorsBlack) {  // Toleransi 5mm
+      if (allSensorsBlack) vTaskDelay(pdMS_TO_TICKS(50));
       stopMotors();
       moveForward = false;
       navigationActive = false;
@@ -884,9 +885,9 @@ void ledTask(void *parameter) {
     int line3_raw = analogRead(LINE_SENSOR_3);
 
     // Konversi ke digital berdasarkan threshold
-    int line1_digital = (line1_raw > lineThreshold[0]) ? 1 : 0;
-    int line2_digital = (line2_raw > lineThreshold[1]) ? 1 : 0;
-    int line3_digital = (line3_raw > lineThreshold[2]) ? 1 : 0;
+    bool line1_digital = (line1_raw > lineThreshold[0]) ? 1 : 0;
+    bool line2_digital = (line2_raw > lineThreshold[1]) ? 1 : 0;
+    bool line3_digital = (line3_raw > lineThreshold[2]) ? 1 : 0;
 
     // Baca gyro dan hitung heading
     sensors_event_t a, g, temp;
@@ -958,18 +959,18 @@ void ledTask(void *parameter) {
 void misiKanan() {
   maju(0.18);
   belok(-90);
-  maju(0.27);
+  maju(0.3);
   belok(90);
 
   for (int i; i < 4; i++) {
     maju(1.65);
-    putarStepper(3, -1);
+    putarStepper(1, -1);
     maju(-0.15);
     belok(90);
     belok(90);
     maju(1.5);
     vTaskDelay(pdMS_TO_TICKS(50));
-    putarStepper(2, 1);
+    putarStepper(1, 1);
     maju(-0.15);
     belok(90);
     maju(0.125);
@@ -988,18 +989,18 @@ void misiKanan() {
 void misiKiri() {
   maju(0.18);
   belok(90);
-  maju(0.27);
+  maju(0.3);
   belok(-90);
 
   for (int i; i < 4; i++) {
     maju(1.65);
-    putarStepper(3, -1);
+    putarStepper(1, -1);
     maju(-0.15);
     belok(90);
     belok(90);
     maju(1.5);
     vTaskDelay(pdMS_TO_TICKS(50));
-    putarStepper(2, 1);
+    putarStepper(1, 1);
     maju(-0.15);
     belok(-90);
     maju(0.125);
