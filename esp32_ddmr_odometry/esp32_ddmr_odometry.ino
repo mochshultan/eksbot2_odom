@@ -22,6 +22,7 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <EEPROM.h>
 
 // ========== PIN DEFINITIONS ==========
 
@@ -36,7 +37,7 @@
 #define IN3 19
 #define IN4 18
 
-int stepSpeed = 900;
+int stepSpeed = 1000;
 int stepSequence[8][4] = {
   { 1, 0, 0, 0 }, { 1, 1, 0, 0 }, { 0, 1, 0, 0 }, { 0, 1, 1, 0 }, { 0, 0, 1, 0 }, { 0, 0, 1, 1 }, { 0, 0, 0, 1 }, { 1, 0, 0, 1 }
 };
@@ -116,9 +117,9 @@ double prev_error_pos = 0.0;
 double integral_pos = 0.0;
 
 // PID parameters untuk ramping down
-double kp_dist = 75.0;    // Proportional gain untuk jarak
-double ki_dist = 1.0;    // Integral gain untuk jarak
-double kd_dist = 700.0;  // Derivative gain untuk jarak
+double kp_dist = 100.0;    // Proportional gain untuk jarak
+double ki_dist = 1.5;    // Integral gain untuk jarak
+double kd_dist = 500.0;  // Derivative gain untuk jarak
 double prev_error_dist = 0.0;
 double integral_dist = 0.0;
 
@@ -144,7 +145,7 @@ float homeHeading = 0.0;  // Heading home reference
 volatile int lineSensorRaw[3] = { 0, 0, 0 };
 volatile bool lineSensorDigital[3] = { 0, 0, 0 };
 SemaphoreHandle_t sensorMutex;
-int lineThreshold[3] = { 2600, 900, 2300 };  // Nilai threshold untuk setiap sensor, di atas threshold == hitam == 1
+int lineThreshold[3] = { 3500, 1500, 3500 };  // Nilai threshold untuk setiap sensor, di atas threshold == hitam == 1
 
 // BLE variables
 BLEServer *pServer = NULL;
@@ -312,7 +313,7 @@ void maju(double jarak) {
   if (navigationActive) return;  // Mencegah navigasi bersamaan
 
   navigationActive = true;
-  targetDistance = abs(jarak) * 0.98;  // Gunakan nilai absolut untuk kalkulasi jarak
+  targetDistance = abs(jarak) * 0.95;  // Gunakan nilai absolut untuk kalkulasi jarak
   bool isForward = (jarak >= 0);       // Tentukan arah
   moveForward = true;
   turnRobot = false;
@@ -343,8 +344,8 @@ void maju(double jarak) {
 
     double remainingDistance = targetDistance - currentDistance;
 
-    if (remainingDistance <= 0.005 || allSensorsBlack) {  // Toleransi 5mm
-      if (allSensorsBlack) vTaskDelay(pdMS_TO_TICKS(50));
+    if (allSensorsBlack || remainingDistance <= 0.005) {  // Toleransi 5mm
+      // if (allSensorsBlack) vTaskDelay(pdMS_TO_TICKS(30));
       stopMotors();
       moveForward = false;
       navigationActive = false;
@@ -354,7 +355,7 @@ void maju(double jarak) {
     // PID control untuk ramping down yang smooth
     double error_dist = remainingDistance;
     integral_dist += error_dist;
-    integral_dist = constrain(integral_dist, -200, 200);
+    integral_dist = constrain(integral_dist, -50, 50);
     double derivative_dist = error_dist - prev_error_dist;
     prev_error_dist = error_dist;
 
@@ -808,12 +809,73 @@ void putarStepper(int jumlahPutaran, int arah) {
     }
   }
 }
+
 void stepMotor(int stepIndex) {
   digitalWrite(IN1, stepSequence[stepIndex][0]);
   digitalWrite(IN2, stepSequence[stepIndex][1]);
   digitalWrite(IN3, stepSequence[stepIndex][2]);
   digitalWrite(IN4, stepSequence[stepIndex][3]);
 }
+
+void saveThresholdToEEPROM() {
+  for (int i = 0; i < 3; i++) {
+    EEPROM.writeInt(i * 4, lineThreshold[i]);
+  }
+  EEPROM.commit();
+  Serial.println("Threshold disimpan ke EEPROM");
+}
+
+void loadThresholdFromEEPROM() {
+  for (int i = 0; i < 3; i++) {
+    lineThreshold[i] = EEPROM.readInt(i * 4);
+  }
+  Serial.println("Threshold dimuat dari EEPROM:");
+  Serial.print("Sensor 1: ");
+  Serial.println(lineThreshold[0]);
+  Serial.print("Sensor 2: ");
+  Serial.println(lineThreshold[1]);
+  Serial.print("Sensor 3: ");
+  Serial.println(lineThreshold[2]);
+}
+
+void kalibrasiLineSensor(){
+  Serial.println("Kalibrasi line sensor dimulai...");
+  Serial.println("Letakkan robot di atas ungu selama 5 detik");
+  
+  int kalibrasiDurasi = 5000;  // 5 detik
+  unsigned long startTime = millis();
+
+  int maxValues[3] = {0, 0, 0};
+
+  while (millis() - startTime < kalibrasiDurasi) {
+    setMotorSpeed(30, 30);
+    int sensor1 = analogRead(LINE_SENSOR_1);
+    int sensor2 = analogRead(LINE_SENSOR_2);
+    int sensor3 = analogRead(LINE_SENSOR_3);
+
+    if (sensor1 > maxValues[0]) maxValues[0] = sensor1;
+    if (sensor2 > maxValues[1]) maxValues[1] = sensor2;
+    if (sensor3 > maxValues[2]) maxValues[2] = sensor3;
+
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+
+  // Hitung threshold = nilai ungu tertinggi + 100
+  for (int i = 0; i < 3; i++) {
+    lineThreshold[i] = maxValues[i] + 25;
+  }
+
+  saveThresholdToEEPROM();
+
+  Serial.println("Kalibrasi selesai. Threshold line sensor:");
+  Serial.print("Sensor 1: ");
+  Serial.println(lineThreshold[0]);
+  Serial.print("Sensor 2: ");
+  Serial.println(lineThreshold[1]);
+  Serial.print("Sensor 3: ");
+  Serial.println(lineThreshold[2]);
+}
+
 // ========== FREERTOS TASKS ==========
 void odometryTask(void *parameter) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -959,25 +1021,25 @@ void ledTask(void *parameter) {
 void misiKanan() {
   maju(0.18);
   belok(-90);
-  maju(0.3);
+  maju(0.27);
   belok(90);
 
   for (int i; i < 4; i++) {
-    maju(1.65);
+    maju(1.77);
     putarStepper(1, -1);
     maju(-0.15);
     belok(90);
     belok(90);
-    maju(1.5);
+    maju(1.62);
     vTaskDelay(pdMS_TO_TICKS(50));
     putarStepper(1, 1);
     maju(-0.15);
     belok(90);
-    maju(0.125);
+    maju(0.14);
     belok(90);
     maju(-0.15);
   }
-  
+  //ke kotak finish
   maju(0.625);
   belok(90);
   maju(0.78);
@@ -989,25 +1051,25 @@ void misiKanan() {
 void misiKiri() {
   maju(0.18);
   belok(90);
-  maju(0.3);
+  maju(0.27);
   belok(-90);
 
   for (int i; i < 4; i++) {
-    maju(1.65);
+    maju(1.77);
     putarStepper(1, -1);
     maju(-0.15);
     belok(90);
     belok(90);
-    maju(1.5);
+    maju(1.62);
     vTaskDelay(pdMS_TO_TICKS(50));
     putarStepper(1, 1);
     maju(-0.15);
     belok(-90);
-    maju(0.125);
+    maju(0.14);
     belok(-90);
     maju(-0.15);
   }
-
+  //ke kotak finish
   maju(0.625);
   belok(-90);
   maju(0.78);
@@ -1021,6 +1083,10 @@ void setup() {
   vTaskDelay(pdMS_TO_TICKS(1000));
 
   Serial.println("ESP32 DDMR Robot with FreeRTOS Starting...");
+
+  // Initialize EEPROM
+  EEPROM.begin(512);
+  loadThresholdFromEEPROM();
 
   // Initialize hardware
   setupMotorDriver();
@@ -1137,6 +1203,15 @@ void loop() {
     } else if (command == "L" || command == "l") {
       Serial.println("Starting misiKiri...");
       misiKiri();
+    } else if (command == "K" || command == "k") {
+      Serial.println("Starting kalibrasi line sensor...");
+      kalibrasiLineSensor();
+      belok(90);
+    } else if (command.toFloat() != 0.0) {
+      double jarak = command.toFloat();
+      Serial.print("Maju jarak: ");
+      Serial.println(jarak);
+      maju(jarak);
     } else {
       Serial.println("Unknown BLE command");
     }
