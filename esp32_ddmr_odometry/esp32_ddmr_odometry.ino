@@ -117,9 +117,9 @@ double prev_error_pos = 0.0;
 double integral_pos = 0.0;
 
 // PID parameters untuk ramping down
-double kp_dist = 100.0;    // Proportional gain untuk jarak
-double ki_dist = 1.5;    // Integral gain untuk jarak
-double kd_dist = 500.0;  // Derivative gain untuk jarak
+double kp_dist = 50.0;    // Proportional gain untuk jarak
+double ki_dist = 3.0;    // Integral gain untuk jarak
+double kd_dist = 700.0;  // Derivative gain untuk jarak
 double prev_error_dist = 0.0;
 double integral_dist = 0.0;
 
@@ -842,13 +842,13 @@ void kalibrasiLineSensor(){
   Serial.println("Kalibrasi line sensor dimulai...");
   Serial.println("Letakkan robot di atas ungu selama 5 detik");
   
-  int kalibrasiDurasi = 5000;  // 5 detik
+  int kalibrasiDurasi = 5200;  // 5 detik
   unsigned long startTime = millis();
 
   int maxValues[3] = {0, 0, 0};
 
   while (millis() - startTime < kalibrasiDurasi) {
-    setMotorSpeed(30, 30);
+    setMotorSpeed(30, -30);
     int sensor1 = analogRead(LINE_SENSOR_1);
     int sensor2 = analogRead(LINE_SENSOR_2);
     int sensor3 = analogRead(LINE_SENSOR_3);
@@ -1024,27 +1024,30 @@ void misiKanan() {
   maju(0.27);
   belok(90);
 
-  for (int i; i < 4; i++) {
-    maju(1.77);
+  for (int i = 0; i < 4; i++) {
+    maju(1.75);
     putarStepper(1, -1);
-    maju(-0.15);
     belok(90);
-    belok(90);
-    maju(1.62);
+    belok(90);    
+    maju(1.75);
     vTaskDelay(pdMS_TO_TICKS(50));
     putarStepper(1, 1);
     maju(-0.15);
+    if (i > 4) break;
     belok(90);
-    maju(0.14);
+    maju(0.15);
     belok(90);
     maju(-0.15);
   }
-  //ke kotak finish
-  maju(0.625);
+
   belok(90);
-  maju(0.78);
+  belok(90);
+  //ke kotak finish
+  maju(1.0);
+  belok(90);
+  maju(1.0);
   belok(-90);
-  maju(0.625);
+  maju(0.8);
   belok(180);
 }
 
@@ -1054,27 +1057,30 @@ void misiKiri() {
   maju(0.27);
   belok(-90);
 
-  for (int i; i < 4; i++) {
-    maju(1.77);
+  for (int i = 0; i < 4; i++) {
+    maju(1.75);
     putarStepper(1, -1);
-    maju(-0.15);
     belok(90);
     belok(90);
-    maju(1.62);
+    maju(1.75);
     vTaskDelay(pdMS_TO_TICKS(50));
     putarStepper(1, 1);
     maju(-0.15);
+    if (i > 4) break;
     belok(-90);
-    maju(0.14);
+    maju(0.15);
     belok(-90);
     maju(-0.15);
   }
-  //ke kotak finish
-  maju(0.625);
-  belok(-90);
-  maju(0.78);
+
   belok(90);
-  maju(0.625);
+  belok(90);
+  //ke kotak finish
+  maju(1.0);
+  belok(-90);
+  maju(1.0);
+  belok(90);
+  maju(0.9);
   belok(180);
 }
 // ========== SETUP AND LOOP ==========
@@ -1212,6 +1218,10 @@ void loop() {
       Serial.print("Maju jarak: ");
       Serial.println(jarak);
       maju(jarak);
+    } else if (command == "up") {
+      putarStepper(1, -1);
+    } else if (command == "down") {
+      putarStepper(1, 1);
     } else {
       Serial.println("Unknown BLE command");
     }
