@@ -38,8 +38,9 @@
 #define IN4 18
 
 int stepSpeed = 1000;
-int stepSequence[8][4] = {
-  { 1, 0, 0, 0 }, { 1, 1, 0, 0 }, { 0, 1, 0, 0 }, { 0, 1, 1, 0 }, { 0, 0, 1, 0 }, { 0, 0, 1, 1 }, { 0, 0, 0, 1 }, { 1, 0, 0, 1 }
+const int stepSequence[8][4] = {
+  {1, 0, 0, 0}, {1, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 1, 0},
+  {0, 0, 1, 0}, {0, 0, 1, 1}, {0, 0, 0, 1}, {1, 0, 0, 1}
 };
 
 // TB6612FNG Motor Driver Pins
@@ -119,7 +120,7 @@ double integral_pos = 0.0;
 // PID parameters untuk ramping down
 double kp_dist = 50.0;    // Proportional gain untuk jarak
 double ki_dist = 3.0;    // Integral gain untuk jarak
-double kd_dist = 700.0;  // Derivative gain untuk jarak
+double kd_dist = 1000.0;  // Derivative gain untuk jarak
 double prev_error_dist = 0.0;
 double integral_dist = 0.0;
 
@@ -197,43 +198,45 @@ void IRAM_ATTR rightEncoderISR() {
 
 // ========== MOTOR CONTROL FUNCTIONS ==========
 void setupMotorDriver() {
-  pinMode(MOTOR_LEFT_PWM, OUTPUT);
   pinMode(MOTOR_LEFT_IN1, OUTPUT);
   pinMode(MOTOR_LEFT_IN2, OUTPUT);
-  pinMode(MOTOR_RIGHT_PWM, OUTPUT);
   pinMode(MOTOR_RIGHT_IN1, OUTPUT);
   pinMode(MOTOR_RIGHT_IN2, OUTPUT);
   pinMode(MOTOR_STBY, OUTPUT);
 
+  // Setup LEDC for PWM (12-bit, 20kHz)
+  ledcAttach(MOTOR_LEFT_PWM, 20000, 8);   // pin, freq, resolution
+  ledcAttach(MOTOR_RIGHT_PWM, 20000, 8);
+
   digitalWrite(MOTOR_STBY, HIGH);  // Enable motor driver
 }
 
-void setMotorSpeed(int leftSpeed, int rightSpeed) {
+void setMotorSpeed(int leftPWM, int rightPWM) {
   // Constrain speeds to -255 to 255
-  leftSpeed = constrain(leftSpeed, -255, 255);
-  rightSpeed = constrain(rightSpeed, -255, 255);
+  leftPWM = constrain(leftPWM, -255, 255);
+  rightPWM = constrain(rightPWM, -255, 255);
 
-  // Left motor control
-  if (leftSpeed >= 0) {
+  // Left motor
+  if (leftPWM >= 0) {
     digitalWrite(MOTOR_LEFT_IN1, HIGH);
     digitalWrite(MOTOR_LEFT_IN2, LOW);
   } else {
     digitalWrite(MOTOR_LEFT_IN1, LOW);
     digitalWrite(MOTOR_LEFT_IN2, HIGH);
-    leftSpeed = -leftSpeed;
+    leftPWM = -leftPWM;
   }
-  analogWrite(MOTOR_LEFT_PWM, leftSpeed);
+  ledcWrite(MOTOR_LEFT_PWM, leftPWM);
 
-  // Right motor control
-  if (rightSpeed >= 0) {
+  // Right motor
+  if (rightPWM >= 0) {
     digitalWrite(MOTOR_RIGHT_IN1, HIGH);
     digitalWrite(MOTOR_RIGHT_IN2, LOW);
   } else {
     digitalWrite(MOTOR_RIGHT_IN1, LOW);
     digitalWrite(MOTOR_RIGHT_IN2, HIGH);
-    rightSpeed = -rightSpeed;
+    rightPWM = -rightPWM;
   }
-  analogWrite(MOTOR_RIGHT_PWM, rightSpeed);
+  ledcWrite(MOTOR_RIGHT_PWM, rightPWM);
 }
 
 void stopMotors() {
@@ -800,14 +803,19 @@ void putarStepper(int jumlahPutaran, int arah) {
   if (arah > 0) {  // searah jarum jam
     for (int step = 0; step < totalStep; step++) {
       stepMotor(step % 8);
-      delayMicroseconds(stepSpeed);
+    vTaskDelay(pdMS_TO_TICKS(stepSpeed/1000)); // Sesuaikan kecepatan: 1ms ≈ 300–500 RPM tergantung motor
     }
   } else {  // berlawanan arah jarum jam
     for (int step = totalStep; step > 0; step--) {
       stepMotor(step % 8);
-      delayMicroseconds(stepSpeed);
+    vTaskDelay(pdMS_TO_TICKS(stepSpeed/1000)); // Sesuaikan kecepatan: 1ms ≈ 300–500 RPM tergantung motor
     }
   }
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+  return;
 }
 
 void stepMotor(int stepIndex) {
