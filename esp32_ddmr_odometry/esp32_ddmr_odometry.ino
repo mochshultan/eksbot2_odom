@@ -311,7 +311,7 @@ void setHome() {
 }
 
 // ========== NAVIGATION FUNCTIONS ==========
-void maju(double jarak) {
+void maju(double jarak, bool rasis=false, bool follow=false) {
   vTaskDelay(pdMS_TO_TICKS(250));
   if (navigationActive) return;  // Mencegah navigasi bersamaan
 
@@ -347,8 +347,8 @@ void maju(double jarak) {
 
     double remainingDistance = targetDistance - currentDistance;
 
-    if (allSensorsBlack || remainingDistance <= 0.005) {  // Toleransi 5mm
-      // if (allSensorsBlack) vTaskDelay(pdMS_TO_TICKS(30));
+    if (rasis) if (allSensorsBlack) remainingDistance=0;
+    if (remainingDistance <= 0.005) {  // Toleransi 5mm
       stopMotors();
       moveForward = false;
       navigationActive = false;
@@ -447,8 +447,161 @@ void maju(double jarak) {
     stopMotors();
     vTaskDelay(pdMS_TO_TICKS(10));
   }
-  stopMotors();
-  navigationActive = false;
+
+  if (!follow){
+    stopMotors();
+    navigationActive = false;
+  } else {
+    // Line following mechanism
+    Serial.println("Starting line following...");
+    
+    // Phase 1: Find black line with sweeping
+    bool lineFound = false;
+    int sweepCount = 0;
+    bool sweepRight = true;
+    
+    while (!lineFound && sweepCount < 2) {
+      if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[2]) {
+          lineFound = true;
+        }
+        xSemaphoreGive(sensorMutex);
+      }
+      
+      if (!lineFound) {
+        const int sweepSpeed = 50;   // Kecepatan motor saat sweep
+        const int sweepDuration = 3000; // Durasi tiap gerakan (ms), sesuaikan dengan robot
+
+        // SWEEP KE KIRI
+        setMotorSpeed(0, sweepSpeed);
+        vTaskDelay(pdMS_TO_TICKS(sweepDuration));
+        stopMotors();
+        vTaskDelay(pdMS_TO_TICKS(50));
+        setMotorSpeed(0, -sweepSpeed);
+        vTaskDelay(pdMS_TO_TICKS(sweepDuration));
+        stopMotors();
+        vTaskDelay(pdMS_TO_TICKS(50));
+        // ke kanan
+        setMotorSpeed(sweepSpeed, 0);
+        vTaskDelay(pdMS_TO_TICKS(sweepDuration));
+        stopMotors();
+        vTaskDelay(pdMS_TO_TICKS(50));
+        setMotorSpeed(-sweepSpeed, 0);
+        vTaskDelay(pdMS_TO_TICKS(sweepDuration));
+        stopMotors();
+        vTaskDelay(pdMS_TO_TICKS(50));
+        sweepCount++;
+      }
+    }
+    
+    if (!lineFound) {
+      Serial.println("Line not found after sweeping, stopping");
+      stopMotors();
+      navigationActive = false;
+      return;
+    }
+    
+    Serial.println("Line found, centering...");
+    
+    // Phase 2: Center on line and follow while maintaining heading
+    int consecutiveCenter = 0;
+    unsigned long followStart = millis();
+    
+    while (consecutiveCenter < 20 && (millis() - followStart < 10000)) {
+      bool sensor[3];
+      float currentHeading;
+      
+      if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        sensor[0] = lineSensorDigital[0];
+        sensor[1] = lineSensorDigital[1];
+        sensor[2] = lineSensorDigital[2];
+        currentHeading = gyroHeading;
+        xSemaphoreGive(sensorMutex);
+      }
+      
+      // Line following logic
+      int baseSpeed = 30;
+      int leftSpeed = baseSpeed;
+      int rightSpeed = baseSpeed;
+      
+      // Line position correction
+      if (sensor[1]) { // Center sensor on line
+        consecutiveCenter++;
+      } else {
+        consecutiveCenter = 0;
+        if (sensor[0] && !sensor[2]) { // Line on left
+          leftSpeed = 80;
+          rightSpeed = 0;
+        } else if (sensor[2] && !sensor[0]) { // Line on right
+          leftSpeed = 10;
+          rightSpeed = 80;
+        } else { // No line detected
+          leftSpeed = 30;
+          rightSpeed = 30;
+        }
+      }
+      
+      setMotorSpeed(leftSpeed, rightSpeed);
+      vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    
+    stopMotors();
+
+    for (int i = 0; i < maxCorrections; i++) {
+      float currentHeading;
+      if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        currentHeading = gyroHeading;
+        xSemaphoreGive(sensorMutex);
+      }
+
+      float errorHeading = homeHeading - currentHeading;
+
+      // Normalisasi error
+      if (errorHeading > 180) {
+        errorHeading -= 360;
+      } else if (errorHeading <= -180) {
+        errorHeading += 360;
+      }
+
+      // Anti-jiggle
+      if (abs(errorHeading) < 0.2) {
+        consecutiveSmallErrors++;
+        if (consecutiveSmallErrors >= 3) {
+          Serial.print("✓ Gyro correction selesai | Final error: ");
+          Serial.print(errorHeading, 2);
+          Serial.println("°");
+          break;
+        }
+      } else {
+        consecutiveSmallErrors = 0;
+      }
+
+      // PID
+      double error_gyro = errorHeading;
+      integral_gyro += error_gyro;
+      integral_gyro = constrain(integral_gyro, -20, 20);
+
+      double derivative_gyro = error_gyro - prev_error_gyro;
+      prev_error_gyro = error_gyro;
+
+      double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
+      int correctionSpeed = constrain(abs((int)correction_output), 20, 40);
+
+      // GYRO: errorHeading < 0 → heading perlu naik → CCW
+      if (errorHeading < 0) {
+        setMotorSpeed(-correctionSpeed, correctionSpeed);
+      } else {
+        setMotorSpeed(correctionSpeed, -correctionSpeed);
+      }
+
+      vTaskDelay(pdMS_TO_TICKS(30));
+      stopMotors();
+      vTaskDelay(pdMS_TO_TICKS(3));
+    }
+    stopMotors();
+    navigationActive = false;
+    Serial.println("Line following completed");
+  }
 }
 
 void belok(double derajat) {
@@ -856,7 +1009,7 @@ void kalibrasiLineSensor(){
   int maxValues[3] = {0, 0, 0};
 
   while (millis() - startTime < kalibrasiDurasi) {
-    setMotorSpeed(100, 90);
+    setMotorSpeed(30, 30);
     int sensor1 = analogRead(LINE_SENSOR_1);
     int sensor2 = analogRead(LINE_SENSOR_2);
     int sensor3 = analogRead(LINE_SENSOR_3);
@@ -871,7 +1024,7 @@ void kalibrasiLineSensor(){
   startTime = millis();
 
   while (millis() - startTime < kalibrasiDurasi) {
-    setMotorSpeed(-100, -90);
+    setMotorSpeed(-30, -30);
     int sensor1 = analogRead(LINE_SENSOR_1);
     int sensor2 = analogRead(LINE_SENSOR_2);
     int sensor3 = analogRead(LINE_SENSOR_3);
@@ -887,7 +1040,7 @@ void kalibrasiLineSensor(){
 
   // Hitung threshold = nilai ungu tertinggi + 100
   for (int i = 0; i < 3; i++) {
-    lineThreshold[i] = maxValues[i] + 25;
+    lineThreshold[i] = maxValues[i] - 200;
   }
 
   saveThresholdToEEPROM();
@@ -1246,6 +1399,8 @@ void loop() {
       putarStepper(1, -1);
     } else if (command == "down") {
       putarStepper(1, 1);
+    } else if (command == "tes") {
+      maju(0.1, false, true);
     } else {
       Serial.println("Unknown BLE command");
     }
