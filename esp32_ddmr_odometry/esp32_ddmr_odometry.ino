@@ -118,9 +118,9 @@ double prev_error_pos = 0.0;
 double integral_pos = 0.0;
 
 // PID parameters untuk ramping down
-double kp_dist = 50.0;    // Proportional gain untuk jarak
-double ki_dist = 3.0;    // Integral gain untuk jarak
-double kd_dist = 1000.0;  // Derivative gain untuk jarak
+double kp_dist = 60.0;    // Proportional gain untuk jarak
+double ki_dist = 0.65;    // Integral gain untuk jarak
+double kd_dist = 40.0;  // Derivative gain untuk jarak
 double prev_error_dist = 0.0;
 double integral_dist = 0.0;
 
@@ -358,7 +358,7 @@ void maju(double jarak) {
     // PID control untuk ramping down yang smooth
     double error_dist = remainingDistance;
     integral_dist += error_dist;
-    integral_dist = constrain(integral_dist, -50, 50);
+    integral_dist = constrain(integral_dist, -500, 100);
     double derivative_dist = error_dist - prev_error_dist;
     prev_error_dist = error_dist;
 
@@ -386,7 +386,7 @@ void maju(double jarak) {
       setMotorSpeed(-speed + correction, -speed - correction);  // Mundur dengan koreksi terbalik
     }
 
-    vTaskDelay(pdMS_TO_TICKS(20));  // 200Hz navigation loop
+    vTaskDelay(pdMS_TO_TICKS(5));  // 100 Hz navigation loop
   }
 
   stopMotors();
@@ -850,13 +850,13 @@ void kalibrasiLineSensor(){
   Serial.println("Kalibrasi line sensor dimulai...");
   Serial.println("Letakkan robot di atas ungu selama 5 detik");
   
-  int kalibrasiDurasi = 5200;  // 5 detik
+  int kalibrasiDurasi = 2000;  // 1 detik
   unsigned long startTime = millis();
 
   int maxValues[3] = {0, 0, 0};
 
   while (millis() - startTime < kalibrasiDurasi) {
-    setMotorSpeed(30, -30);
+    setMotorSpeed(100, 90);
     int sensor1 = analogRead(LINE_SENSOR_1);
     int sensor2 = analogRead(LINE_SENSOR_2);
     int sensor3 = analogRead(LINE_SENSOR_3);
@@ -867,6 +867,23 @@ void kalibrasiLineSensor(){
 
     vTaskDelay(pdMS_TO_TICKS(50));
   }
+  setMotorSpeed(0, 0);
+  startTime = millis();
+
+  while (millis() - startTime < kalibrasiDurasi) {
+    setMotorSpeed(-100, -90);
+    int sensor1 = analogRead(LINE_SENSOR_1);
+    int sensor2 = analogRead(LINE_SENSOR_2);
+    int sensor3 = analogRead(LINE_SENSOR_3);
+
+    if (sensor1 > maxValues[0]) maxValues[0] = sensor1;
+    if (sensor2 > maxValues[1]) maxValues[1] = sensor2;
+    if (sensor3 > maxValues[2]) maxValues[2] = sensor3;
+
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+
+  setMotorSpeed(0, 0);
 
   // Hitung threshold = nilai ungu tertinggi + 100
   for (int i = 0; i < 3; i++) {
@@ -1220,7 +1237,6 @@ void loop() {
     } else if (command == "K" || command == "k") {
       Serial.println("Starting kalibrasi line sensor...");
       kalibrasiLineSensor();
-      belok(90);
     } else if (command.toFloat() != 0.0) {
       double jarak = command.toFloat();
       Serial.print("Maju jarak: ");
