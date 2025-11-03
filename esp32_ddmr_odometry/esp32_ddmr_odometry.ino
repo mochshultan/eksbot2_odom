@@ -118,9 +118,9 @@ double prev_error_pos = 0.0;
 double integral_pos = 0.0;
 
 // PID parameters untuk ramping down
-double kp_dist = 60.0;    // Proportional gain untuk jarak
-double ki_dist = 0.65;    // Integral gain untuk jarak
-double kd_dist = 40.0;  // Derivative gain untuk jarak
+double kp_dist = 50.0;    // Proportional gain untuk jarak
+double ki_dist = 0.7;    // Integral gain untuk jarak
+double kd_dist = 30.0;  // Derivative gain untuk jarak
 double prev_error_dist = 0.0;
 double integral_dist = 0.0;
 
@@ -347,7 +347,8 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
 
     double remainingDistance = targetDistance - currentDistance;
 
-    if (rasis) if (allSensorsBlack) remainingDistance=0;
+    if (rasis && allSensorsBlack) remainingDistance=0;
+
     if (remainingDistance <= 0.005) {  // Toleransi 5mm
       stopMotors();
       moveForward = false;
@@ -358,7 +359,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     // PID control untuk ramping down yang smooth
     double error_dist = remainingDistance;
     integral_dist += error_dist;
-    integral_dist = constrain(integral_dist, -500, 100);
+    integral_dist = constrain(integral_dist, -500, ceil(abs(jarak))*75);
     double derivative_dist = error_dist - prev_error_dist;
     prev_error_dist = error_dist;
 
@@ -390,10 +391,9 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
   }
 
   stopMotors();
+  vTaskDelay(pdMS_TO_TICKS(10));
 
-  vTaskDelay(pdMS_TO_TICKS(50));
-
-  int maxCorrections = 1000;
+  int maxCorrections = 500;
   int consecutiveSmallErrors = 0;
 
   for (int i = 0; i < maxCorrections; i++) {
@@ -443,7 +443,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       setMotorSpeed(correctionSpeed, -correctionSpeed);
     }
 
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(15));
     stopMotors();
     vTaskDelay(pdMS_TO_TICKS(10));
   }
@@ -469,41 +469,71 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       }
       
       if (!lineFound) {
-        const int sweepSpeed = 50;   // Kecepatan motor saat sweep
+        const int sweepSpeed = 70;   // Kecepatan motor saat sweep
         const int sweepDuration = 3000; // Durasi tiap gerakan (ms), sesuaikan dengan robot
 
-        // SWEEP KE KIRI
+        // Sweep kiri
         setMotorSpeed(0, sweepSpeed);
-        vTaskDelay(pdMS_TO_TICKS(sweepDuration));
-        stopMotors();
-        vTaskDelay(pdMS_TO_TICKS(50));
+        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[2]) {
+              lineFound = true;
+            }
+            xSemaphoreGive(sensorMutex);
+          }
+        }
+        if (lineFound) break;
+        
+        // Balik kiri
         setMotorSpeed(0, -sweepSpeed);
-        vTaskDelay(pdMS_TO_TICKS(sweepDuration));
-        stopMotors();
-        vTaskDelay(pdMS_TO_TICKS(50));
-        // ke kanan
+        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[2]) {
+              lineFound = true;
+            }
+            xSemaphoreGive(sensorMutex);
+          }
+        }
+        if (lineFound) break;
+        
+        // Sweep kanan
         setMotorSpeed(sweepSpeed, 0);
-        vTaskDelay(pdMS_TO_TICKS(sweepDuration));
-        stopMotors();
-        vTaskDelay(pdMS_TO_TICKS(50));
+        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[2]) {
+              lineFound = true;
+            }
+            xSemaphoreGive(sensorMutex);
+          }
+        }
+        if (lineFound) break;
+        
+        // Balik kanan
         setMotorSpeed(-sweepSpeed, 0);
-        vTaskDelay(pdMS_TO_TICKS(sweepDuration));
-        stopMotors();
-        vTaskDelay(pdMS_TO_TICKS(50));
+        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[2]) {
+              lineFound = true;
+            }
+            xSemaphoreGive(sensorMutex);
+          }
+        }
+        
         sweepCount++;
       }
     }
     
     if (!lineFound) {
-      Serial.println("Line not found after sweeping, stopping");
+      Serial.println("Line not found after sweeping, force follow.");
       stopMotors();
-      navigationActive = false;
-      return;
     }
-    
-    Serial.println("Line found, centering...");
-    
+
     // Phase 2: Center on line and follow while maintaining heading
+    Serial.println("Line found, centering...");
     int consecutiveCenter = 0;
     unsigned long followStart = millis();
     
@@ -530,23 +560,24 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       } else {
         consecutiveCenter = 0;
         if (sensor[0] && !sensor[2]) { // Line on left
-          leftSpeed = 80;
+          leftSpeed = 120;
           rightSpeed = 0;
         } else if (sensor[2] && !sensor[0]) { // Line on right
           leftSpeed = 10;
-          rightSpeed = 80;
+          rightSpeed = 120;
         } else { // No line detected
-          leftSpeed = 30;
-          rightSpeed = 30;
+          leftSpeed = baseSpeed;
+          rightSpeed = baseSpeed;
         }
       }
       
       setMotorSpeed(leftSpeed, rightSpeed);
-      vTaskDelay(pdMS_TO_TICKS(20));
+      vTaskDelay(pdMS_TO_TICKS(25));
     }
     
     stopMotors();
 
+    // Correct heading after line follow
     for (int i = 0; i < maxCorrections; i++) {
       float currentHeading;
       if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -585,7 +616,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       prev_error_gyro = error_gyro;
 
       double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-      int correctionSpeed = constrain(abs((int)correction_output), 20, 40);
+      int correctionSpeed = constrain(abs((int)correction_output), 20, 50);
 
       // GYRO: errorHeading < 0 → heading perlu naik → CCW
       if (errorHeading < 0) {
@@ -999,6 +1030,65 @@ void loadThresholdFromEEPROM() {
   Serial.println(lineThreshold[2]);
 }
 
+// bool checkLineFound() {
+//   if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+//     bool found = (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[2]);
+//     xSemaphoreGive(sensorMutex);
+//     return found;
+//   }
+//   return false;
+// }
+
+// void sweepForLine() {
+//   Serial.println("Mencari garis...");
+//   bool lineFound = false;
+//   int sweepCount = 0;
+//   const int sweepSpeed = 70;
+//   const int sweepSteps = 60; // 60 x 50ms = 3 detik
+
+//   while (!lineFound && sweepCount < 2) {
+//     // Sweep kiri
+//     setMotorSpeed(0, sweepSpeed);
+//     for (int i = 0; i < sweepSteps && !lineFound; i++) {
+//       vTaskDelay(pdMS_TO_TICKS(50));
+//       lineFound = checkLineFound();
+//     }
+//     if (lineFound) break;
+
+//     // Balik kiri
+//     setMotorSpeed(0, -sweepSpeed);
+//     for (int i = 0; i < sweepSteps && !lineFound; i++) {
+//       vTaskDelay(pdMS_TO_TICKS(50));
+//       lineFound = checkLineFound();
+//     }
+//     if (lineFound) break;
+
+//     // Sweep kanan
+//     setMotorSpeed(sweepSpeed, 0);
+//     for (int i = 0; i < sweepSteps && !lineFound; i++) {
+//       vTaskDelay(pdMS_TO_TICKS(50));
+//       lineFound = checkLineFound();
+//     }
+//     if (lineFound) break;
+
+//     // Balik kanan
+//     setMotorSpeed(-sweepSpeed, 0);
+//     for (int i = 0; i < sweepSteps && !lineFound; i++) {
+//       vTaskDelay(pdMS_TO_TICKS(50));
+//       lineFound = checkLineFound();
+//     }
+    
+//     sweepCount++;
+//   }
+
+//   stopMotors();
+//   if (lineFound) {
+//     Serial.println("Garis ditemukan!");
+//   } else {
+//     Serial.println("Garis tidak ditemukan setelah sweep");
+//   }
+// }
+
 void kalibrasiLineSensor(){
   Serial.println("Kalibrasi line sensor dimulai...");
   Serial.println("Letakkan robot di atas ungu selama 5 detik");
@@ -1009,7 +1099,7 @@ void kalibrasiLineSensor(){
   int maxValues[3] = {0, 0, 0};
 
   while (millis() - startTime < kalibrasiDurasi) {
-    setMotorSpeed(30, 30);
+    setMotorSpeed(85, 88);
     int sensor1 = analogRead(LINE_SENSOR_1);
     int sensor2 = analogRead(LINE_SENSOR_2);
     int sensor3 = analogRead(LINE_SENSOR_3);
@@ -1024,7 +1114,7 @@ void kalibrasiLineSensor(){
   startTime = millis();
 
   while (millis() - startTime < kalibrasiDurasi) {
-    setMotorSpeed(-30, -30);
+    setMotorSpeed(-85, -88);
     int sensor1 = analogRead(LINE_SENSOR_1);
     int sensor2 = analogRead(LINE_SENSOR_2);
     int sensor3 = analogRead(LINE_SENSOR_3);
