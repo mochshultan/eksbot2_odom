@@ -118,9 +118,9 @@ double prev_error_pos = 0.0;
 double integral_pos = 0.0;
 
 // PID parameters untuk ramping down
-double kp_dist = 50.0;    // Proportional gain untuk jarak
+double kp_dist = 60.0;    // Proportional gain untuk jarak
 double ki_dist = 0.7;    // Integral gain untuk jarak
-double kd_dist = 30.0;  // Derivative gain untuk jarak
+double kd_dist = 20.0;  // Derivative gain untuk jarak
 double prev_error_dist = 0.0;
 double integral_dist = 0.0;
 
@@ -341,15 +341,20 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
   Serial.println(startHeading);
 
   bool allSensorsBlack = false;
+  int tunggu = 0;
   float currentHeading = startHeading;  // Default ke startHeading
   while (moveForward && navigationActive) {
     double currentDistance = sqrt(pow(robotPose.x - startX, 2) + pow(robotPose.y - startY, 2));
 
     double remainingDistance = targetDistance - currentDistance;
 
-    if (rasis && allSensorsBlack) remainingDistance=0;
+    if (rasis && allSensorsBlack) {
+      remainingDistance=0;
+      tunggu = 50;
+    }
 
     if (remainingDistance <= 0.005) {  // Toleransi 5mm
+      vTaskDelay(pdMS_TO_TICKS(tunggu));  // 100 Hz navigation loop
       stopMotors();
       moveForward = false;
       navigationActive = false;
@@ -550,7 +555,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       }
       
       // Line following logic
-      int baseSpeed = 30;
+      int baseSpeed = 80;
       int leftSpeed = baseSpeed;
       int rightSpeed = baseSpeed;
       
@@ -572,7 +577,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       }
       
       setMotorSpeed(leftSpeed, rightSpeed);
-      vTaskDelay(pdMS_TO_TICKS(25));
+      vTaskDelay(pdMS_TO_TICKS(5));
     }
     
     stopMotors();
@@ -585,7 +590,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
         xSemaphoreGive(sensorMutex);
       }
 
-      float errorHeading = homeHeading - currentHeading;
+      float errorHeading = startHeading - currentHeading;
 
       // Normalisasi error
       if (errorHeading > 180) {
@@ -629,6 +634,9 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       stopMotors();
       vTaskDelay(pdMS_TO_TICKS(3));
     }
+
+
+
     stopMotors();
     navigationActive = false;
     Serial.println("Line following completed");
@@ -1099,7 +1107,7 @@ void kalibrasiLineSensor(){
   int maxValues[3] = {0, 0, 0};
 
   while (millis() - startTime < kalibrasiDurasi) {
-    setMotorSpeed(85, 88);
+    setMotorSpeed(45, 48);
     int sensor1 = analogRead(LINE_SENSOR_1);
     int sensor2 = analogRead(LINE_SENSOR_2);
     int sensor3 = analogRead(LINE_SENSOR_3);
@@ -1114,7 +1122,7 @@ void kalibrasiLineSensor(){
   startTime = millis();
 
   while (millis() - startTime < kalibrasiDurasi) {
-    setMotorSpeed(-85, -88);
+    setMotorSpeed(-45, -48);
     int sensor1 = analogRead(LINE_SENSOR_1);
     int sensor2 = analogRead(LINE_SENSOR_2);
     int sensor3 = analogRead(LINE_SENSOR_3);
@@ -1287,70 +1295,75 @@ void ledTask(void *parameter) {
 }
 
 void misiKanan() {
-  maju(0.18);
+  maju(0.18,0,0);
   belok(-90);
-  maju(0.27);
+  maju(0.27,1,0);
   belok(90);
 
   for (int i = 0; i < 4; i++) {
-    maju(1.75);
+    maju(1.5,0,1);
+    maju(0.2);
     putarStepper(1, -1);
     belok(90);
     belok(90);    
-    maju(1.75);
+    maju(1.5,0,1);
+    maju(0.2);
     vTaskDelay(pdMS_TO_TICKS(50));
     putarStepper(1, 1);
-    maju(-0.15);
+    maju(-0.15,0,0);
     if (i > 4) break;
     belok(90);
-    maju(0.15);
+    maju(0.15,0,0);
     belok(90);
-    maju(-0.15);
+    maju(-0.15,0,0);
   }
 
   belok(90);
   belok(90);
   //ke kotak finish
-  maju(1.0);
+  maju(1.0,0,0);
   belok(90);
-  maju(1.0);
+  maju(1.0,0,0);
   belok(-90);
-  maju(0.8);
+  maju(0.8,0,0);
   belok(180);
 }
 
 void misiKiri() {
-  maju(0.18);
+  maju(0.18,0,0);
   belok(90);
-  maju(0.27);
+  maju(0.28,1,0);
   belok(-90);
 
   for (int i = 0; i < 4; i++) {
-    maju(1.75);
+    maju(1.5,0,1);
+    maju(0.2);
     putarStepper(1, -1);
     belok(90);
     belok(90);
-    maju(1.75);
+    maju(1.5,0,1);
+    maju(0.2);
     vTaskDelay(pdMS_TO_TICKS(50));
     putarStepper(1, 1);
-    maju(-0.15);
+    maju(-0.15,0,0);
     if (i > 4) break;
     belok(-90);
-    maju(0.15);
+    maju(0.15,0,0);
     belok(-90);
-    maju(-0.15);
+    maju(-0.15,0,0);
   }
 
   belok(90);
   belok(90);
   //ke kotak finish
-  maju(1.0);
+  maju(1.0,0,0);
   belok(-90);
-  maju(1.0);
+  maju(1.0,0,0);
   belok(90);
-  maju(0.9);
+  maju(0.9,0,0);
   belok(180);
 }
+
 // ========== SETUP AND LOOP ==========
 void setup() {
   Serial.begin(115200);
@@ -1491,6 +1504,7 @@ void loop() {
       putarStepper(1, 1);
     } else if (command == "tes") {
       maju(0.1, false, true);
+      maju(0.1,0,0);
     } else {
       Serial.println("Unknown BLE command");
     }
