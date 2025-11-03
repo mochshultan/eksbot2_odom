@@ -313,12 +313,12 @@ void setHome() {
 
 // ========== NAVIGATION FUNCTIONS ==========
 void maju(double jarak, bool rasis=false, bool follow=false) {
-  vTaskDelay(pdMS_TO_TICKS(250));
+  vTaskDelay(pdMS_TO_TICKS(20));
   if (navigationActive) return;  // Mencegah navigasi bersamaan
 
   navigationActive = true;
   targetDistance = abs(jarak) * 0.95;  // Gunakan nilai absolut untuk kalkulasi jarak
-  targetStop = (follow) ? targetDistance * 0.9 : targetDistance;
+  targetStop = (follow) ? targetDistance * 0.89 : targetDistance;
   bool isForward = (jarak >= 0);       // Tentukan arah
   moveForward = true;
   turnRobot = false;
@@ -397,9 +397,6 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     vTaskDelay(pdMS_TO_TICKS(5));  // 100 Hz navigation loop
   }
 
-  stopMotors();
-  vTaskDelay(pdMS_TO_TICKS(10));
-
   int maxCorrections = 500;
   int consecutiveSmallErrors = 0;
 
@@ -420,7 +417,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     }
 
     // Anti-jiggle
-    if (abs(errorHeading) < 0.2) {
+    if (abs(errorHeading) < 0.15) {
       consecutiveSmallErrors++;
       if (consecutiveSmallErrors >= 3) {
         Serial.print("✓ Gyro correction selesai | Final error: ");
@@ -476,37 +473,11 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       }
       
       if (!lineFound) {
-        const int sweepSpeed = 80;   // Kecepatan motor saat sweep
+        const int sweepSpeed = 90;   // Kecepatan motor saat sweep
         const int sweepDuration = 1500; // Durasi tiap gerakan (ms), sesuaikan dengan robot
-
-        // Sweep kiri
-        setMotorSpeed(0, sweepSpeed);
-        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
-          vTaskDelay(pdMS_TO_TICKS(50));
-          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[2]) {
-              lineFound = true;
-            }
-            xSemaphoreGive(sensorMutex);
-          }
-        }
-        if (lineFound) break;
-        
-        // Balik kiri
-        setMotorSpeed(0, -sweepSpeed);
-        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
-          vTaskDelay(pdMS_TO_TICKS(50));
-          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[2]) {
-              lineFound = true;
-            }
-            xSemaphoreGive(sensorMutex);
-          }
-        }
-        if (lineFound) break;
         
         // Sweep kanan
-        setMotorSpeed(sweepSpeed, 0);
+        setMotorSpeed(sweepSpeed, 10);
         for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
           vTaskDelay(pdMS_TO_TICKS(50));
           if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -519,7 +490,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
         if (lineFound) break;
         
         // Balik kanan
-        setMotorSpeed(-sweepSpeed, 0);
+        setMotorSpeed(-sweepSpeed, -10);
         for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
           vTaskDelay(pdMS_TO_TICKS(50));
           if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -529,6 +500,33 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
             xSemaphoreGive(sensorMutex);
           }
         }
+        if (lineFound) break;
+
+        // Sweep kiri
+        setMotorSpeed(10, sweepSpeed);
+        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[2]) {
+              lineFound = true;
+            }
+            xSemaphoreGive(sensorMutex);
+          }
+        }
+        if (lineFound) break;
+        
+        // Balik kiri
+        setMotorSpeed(-10, -sweepSpeed);
+        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[2]) {
+              lineFound = true;
+            }
+            xSemaphoreGive(sensorMutex);
+          }
+        }
+        if (lineFound) break;
         
         sweepCount++;
       }
@@ -557,7 +555,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       }
       
       // Line following logic
-      int baseSpeed = 40;
+      int baseSpeed = 30;
       int leftSpeed = baseSpeed;
       int rightSpeed = baseSpeed;
       
@@ -585,24 +583,24 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     stopMotors();
 
     // Correct heading after line follow
-    for (int i = 0; i < maxCorrections; i++) {
+    for (int i = 0; i < 100; i++) {
       float currentHeading;
       if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         currentHeading = gyroHeading;
         xSemaphoreGive(sensorMutex);
       }
 
-      float errorHeading = startHeading - currentHeading;
+      float errorHeading = homeHeading - currentHeading;
 
       // Normalisasi error
-      if (errorHeading > 180) {
-        errorHeading -= 360;
-      } else if (errorHeading <= -180) {
-        errorHeading += 360;
-      }
+    if (errorHeading > 90) {
+      errorHeading -= 180;
+    } else if (errorHeading < -90) {
+      errorHeading += 180;
+    }
 
       // Anti-jiggle
-      if (abs(errorHeading) < 0.2) {
+      if (abs(errorHeading) < 0.15) {
         consecutiveSmallErrors++;
         if (consecutiveSmallErrors >= 3) {
           Serial.print("✓ Gyro correction selesai | Final error: ");
@@ -617,13 +615,13 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       // PID
       double error_gyro = errorHeading;
       integral_gyro += error_gyro;
-      integral_gyro = constrain(integral_gyro, -20, 20);
+      integral_gyro = constrain(integral_gyro, -25, 25);
 
       double derivative_gyro = error_gyro - prev_error_gyro;
       prev_error_gyro = error_gyro;
 
       double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-      int correctionSpeed = constrain(abs((int)correction_output), 20, 50);
+      int correctionSpeed = constrain(abs((int)correction_output), 30, 50);
 
       // GYRO: errorHeading < 0 → heading perlu naik → CCW
       if (errorHeading < 0) {
@@ -632,9 +630,9 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
         setMotorSpeed(correctionSpeed, -correctionSpeed);
       }
 
-      vTaskDelay(pdMS_TO_TICKS(30));
+      vTaskDelay(pdMS_TO_TICKS(20));
       stopMotors();
-      vTaskDelay(pdMS_TO_TICKS(3));
+      vTaskDelay(pdMS_TO_TICKS(10));
     }
 
     // Maju sisa
@@ -695,7 +693,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
   stopMotors();
   vTaskDelay(pdMS_TO_TICKS(10));
 
-  int maxCorrections = 500;
+  int maxCorrections = 100;
   int consecutiveSmallErrors = 0;
 
   for (int i = 0; i < maxCorrections; i++) {
@@ -715,7 +713,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     }
 
     // Anti-jiggle
-    if (abs(errorHeading) < 0.2) {
+    if (abs(errorHeading) < 0.15) {
       consecutiveSmallErrors++;
       if (consecutiveSmallErrors >= 3) {
         Serial.print("✓ Gyro correction selesai | Final error: ");
@@ -736,7 +734,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     prev_error_gyro = error_gyro;
 
     double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 40, 60);
+    int correctionSpeed = constrain(abs((int)correction_output), 30, 50);
 
     // GYRO: errorHeading < 0 → heading perlu naik → CCW
     if (errorHeading < 0) {
@@ -757,7 +755,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
 }
 
 void belok(double derajat) {
-  vTaskDelay(pdMS_TO_TICKS(250));
+  vTaskDelay(pdMS_TO_TICKS(10));
   if (navigationActive) return;
 
   navigationActive = true;
@@ -815,7 +813,7 @@ void belok(double derajat) {
       lastPrint = millis();
     }
 
-    if (abs(remainingAngle) < 1) {  // 2 derajat toleransi
+    if (abs(remainingAngle) < 0.5) {  // 2 derajat toleransi
       stopMotors();
       turnRobot = false;
       Serial.println("✓ Fase odometry selesai");
@@ -824,12 +822,12 @@ void belok(double derajat) {
 
     double error_angle = remainingAngle;
     integral_angle += error_angle;
-    integral_angle = constrain(integral_angle, -10, 10);
+    integral_angle = constrain(integral_angle, -20, 15);
     double derivative_angle = error_angle - prev_error_angle;
     prev_error_angle = error_angle;
 
     double turn_output = kp_angle * abs(error_angle) + ki_angle * integral_angle + kd_angle * abs(derivative_angle);
-    int turnSpeed = constrain((int)turn_output, 20, 120);
+    int turnSpeed = constrain((int)turn_output, 30, 120);
 
     // remainingAngle > 0 → theta perlu naik → CCW (kiri)
     if (remainingAngle > 0) {
@@ -885,7 +883,7 @@ void belok(double derajat) {
     }
 
     // Anti-jiggle
-    if (abs(errorHeading) < 0.21) {
+    if (abs(errorHeading) < 0.15) {
       consecutiveSmallErrors++;
       if (consecutiveSmallErrors >= 3) {
         Serial.print("✓ Gyro correction selesai | Final error: ");
@@ -905,7 +903,7 @@ void belok(double derajat) {
     double derivative_gyro = error_gyro - prev_error_gyro;
 
     double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 40, 50);
+    int correctionSpeed = constrain(abs((int)correction_output),30, 60);
 
     prev_error_gyro = error_gyro;
 
@@ -1063,7 +1061,7 @@ void gojek(double targetX, double targetY, double targetTheta) {
     if (errorHeading > 180) errorHeading -= 360;
     else if (errorHeading <= -180) errorHeading += 360;
 
-    if (abs(errorHeading) < 0.2) {
+    if (abs(errorHeading) < 0.15) {
       consecutiveSmallErrors++;
       if (consecutiveSmallErrors >= 3) {
         Serial.print("✓ Heading final OK | Error: ");
@@ -1309,7 +1307,7 @@ void ledTask(void *parameter) {
   // Konfigurasi MPU6050
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);  // ini dipakai
-  mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
   Serial.println("MPU6050 berhasil diinisialisasi");
   // Inisialisasi
@@ -1352,7 +1350,7 @@ void ledTask(void *parameter) {
     float gyroZ_corrected = g.gyro.z - gyroZ_offset;
 
     // Dead zone untuk mengurangi drift saat diam
-    if (abs(gyroZ_corrected) < 0.01) {  // Dead zone 0.01 rad/s
+    if (abs(gyroZ_corrected) < 0.02) {  // Dead zone 0.02 rad/s
       gyroZ_corrected = 0.0;
     }
     heading += gyroZ_corrected * dt * 180.0 / PI;  // konversi ke derajat
@@ -1413,16 +1411,16 @@ void misiKanan() {
   maju(0.28,1,0);
   belok(90);
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     maju(1.7,0,1);
-    putarStepper(2, -1);
+    putarStepper(3, -1);
     belok(90);
     belok(90);    
-    maju(1.75,0,1);
+    maju(1.7,0,1);
     vTaskDelay(pdMS_TO_TICKS(50));
-    putarStepper(2, 1);
+    putarStepper(3, 1);
     maju(-0.15,0,0);
-    if (i > 4) break;
+    if (i == 4) break;
     belok(90);
     maju(0.15,0,0);
     belok(90);
@@ -1446,16 +1444,16 @@ void misiKiri() {
   maju(0.28,1,0);
   belok(-90);
 
-  for (int i = 0; i < 4; i++) {
-    maju(1.7,0,1);
-    putarStepper(2, -1);
+  for (int i = 0; i < 5; i++) {
+    maju(1.69,0,1);
+    putarStepper(3, -1);
     belok(-90);
     belok(-90);
-    maju(1.75,0,1);
+    maju(1.69,0,1);
     vTaskDelay(pdMS_TO_TICKS(50));
-    putarStepper(2, 1);
+    putarStepper(3, 1);
     maju(-0.15,0,0);
-    if (i > 4) break;
+    if (i == 4) break;
     belok(-90);
     maju(0.15,0,0);
     belok(-90);
@@ -1465,11 +1463,11 @@ void misiKiri() {
   belok(90);
   belok(90);
   //ke kotak finish
-  maju(1.0,0,0);
+  maju(0.8,0,0);
   belok(-90);
-  maju(1.0,0,0);
-  belok(90);
   maju(0.9,0,0);
+  belok(90);
+  maju(0.6,0,0);
   belok(180);
 }
 
