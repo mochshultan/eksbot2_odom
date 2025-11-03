@@ -106,6 +106,7 @@ TaskHandle_t ledTaskHandle = NULL;
 // Navigation control variables
 volatile bool navigationActive = false;
 volatile double targetDistance = 0.0;
+volatile double targetStop = 0.0;
 volatile double targetAngle = 0.0;
 volatile bool moveForward = false;
 volatile bool turnRobot = false;
@@ -317,6 +318,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
 
   navigationActive = true;
   targetDistance = abs(jarak) * 0.95;  // Gunakan nilai absolut untuk kalkulasi jarak
+  targetStop = (follow) ? targetDistance * 0.9 : targetDistance;
   bool isForward = (jarak >= 0);       // Tentukan arah
   moveForward = true;
   turnRobot = false;
@@ -346,7 +348,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
   while (moveForward && navigationActive) {
     double currentDistance = sqrt(pow(robotPose.x - startX, 2) + pow(robotPose.y - startY, 2));
 
-    double remainingDistance = targetDistance - currentDistance;
+    double remainingDistance = targetStop - currentDistance;
 
     if (rasis && allSensorsBlack) {
       remainingDistance=0;
@@ -474,8 +476,8 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       }
       
       if (!lineFound) {
-        const int sweepSpeed = 70;   // Kecepatan motor saat sweep
-        const int sweepDuration = 3000; // Durasi tiap gerakan (ms), sesuaikan dengan robot
+        const int sweepSpeed = 80;   // Kecepatan motor saat sweep
+        const int sweepDuration = 1500; // Durasi tiap gerakan (ms), sesuaikan dengan robot
 
         // Sweep kiri
         setMotorSpeed(0, sweepSpeed);
@@ -555,7 +557,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       }
       
       // Line following logic
-      int baseSpeed = 80;
+      int baseSpeed = 40;
       int leftSpeed = baseSpeed;
       int rightSpeed = baseSpeed;
       
@@ -635,11 +637,122 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       vTaskDelay(pdMS_TO_TICKS(3));
     }
 
+    // Maju sisa
+    navigationActive = true;
+    moveForward = true;
+    while (moveForward && navigationActive) {
+    double currentDistance = sqrt(pow(robotPose.x - startX, 2) + pow(robotPose.y - startY, 2));
 
+    double remainingDistance = targetDistance - currentDistance;
 
+    if (rasis && allSensorsBlack) {
+      remainingDistance=0;
+      tunggu = 50;
+    }
+
+    if (remainingDistance <= 0.005) {  // Toleransi 5mm
+      vTaskDelay(pdMS_TO_TICKS(tunggu));  // 100 Hz navigation loop
+      stopMotors();
+      moveForward = false;
+      navigationActive = false;
+      break;
+    }
+
+    // PID control untuk ramping down yang smooth
+    double error_dist = remainingDistance;
+    integral_dist += error_dist;
+    integral_dist = constrain(integral_dist, -500, ceil(abs(jarak))*75);
+    double derivative_dist = error_dist - prev_error_dist;
+    prev_error_dist = error_dist;
+
+    double speed_output = kp_dist * error_dist + ki_dist * integral_dist + kd_dist * derivative_dist;
+    int speed = constrain((int)speed_output, 25, 225);
+
+    // Koreksi heading menggunakan gyro
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      currentHeading = gyroHeading;
+      allSensorsBlack = (lineSensorDigital[0] && lineSensorDigital[1] && lineSensorDigital[2]);
+      xSemaphoreGive(sensorMutex);
+    }
+
+    float headingError = startHeading - currentHeading;
+    // Normalisasi ke rentang -180 s.d. 180
+    if (headingError > 180.0f) headingError -= 360.0f;
+    if (headingError < -180.0f) headingError += 360.0f;
+    Serial.println(headingError);
+    int correction = (int)(headingError * 15);
+
+    // Terapkan arah dan koreksi heading
+    if (isForward) {
+      setMotorSpeed(speed + correction, speed - correction);  // Maju dengan koreksi
+    } else {
+      setMotorSpeed(-speed + correction, -speed - correction);  // Mundur dengan koreksi terbalik
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(5));  // 100 Hz navigation loop
+  }
+
+  stopMotors();
+  vTaskDelay(pdMS_TO_TICKS(10));
+
+  int maxCorrections = 500;
+  int consecutiveSmallErrors = 0;
+
+  for (int i = 0; i < maxCorrections; i++) {
+    float currentHeading;
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      currentHeading = gyroHeading;
+      xSemaphoreGive(sensorMutex);
+    }
+
+    float errorHeading = startHeading - currentHeading;
+
+    // Normalisasi error
+    if (errorHeading > 180) {
+      errorHeading -= 360;
+    } else if (errorHeading <= -180) {
+      errorHeading += 360;
+    }
+
+    // Anti-jiggle
+    if (abs(errorHeading) < 0.2) {
+      consecutiveSmallErrors++;
+      if (consecutiveSmallErrors >= 3) {
+        Serial.print("✓ Gyro correction selesai | Final error: ");
+        Serial.print(errorHeading, 2);
+        Serial.println("°");
+        break;
+      }
+    } else {
+      consecutiveSmallErrors = 0;
+    }
+
+    // PID
+    double error_gyro = errorHeading;
+    integral_gyro += error_gyro;
+    integral_gyro = constrain(integral_gyro, -20, 20);
+
+    double derivative_gyro = error_gyro - prev_error_gyro;
+    prev_error_gyro = error_gyro;
+
+    double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
+    int correctionSpeed = constrain(abs((int)correction_output), 40, 60);
+
+    // GYRO: errorHeading < 0 → heading perlu naik → CCW
+    if (errorHeading < 0) {
+      setMotorSpeed(-correctionSpeed, correctionSpeed);
+    } else {
+      setMotorSpeed(correctionSpeed, -correctionSpeed);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(15));
     stopMotors();
-    navigationActive = false;
-    Serial.println("Line following completed");
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+
+  stopMotors();
+  navigationActive = false;
+  Serial.println("Line following completed");
   }
 }
 
@@ -1297,19 +1410,17 @@ void ledTask(void *parameter) {
 void misiKanan() {
   maju(0.18,0,0);
   belok(-90);
-  maju(0.27,1,0);
+  maju(0.28,1,0);
   belok(90);
 
   for (int i = 0; i < 4; i++) {
-    maju(1.5,0,1);
-    maju(0.2);
-    putarStepper(1, -1);
+    maju(1.7,0,1);
+    putarStepper(2, -1);
     belok(90);
     belok(90);    
-    maju(1.5,0,1);
-    maju(0.2);
+    maju(1.75,0,1);
     vTaskDelay(pdMS_TO_TICKS(50));
-    putarStepper(1, 1);
+    putarStepper(2, 1);
     maju(-0.15,0,0);
     if (i > 4) break;
     belok(90);
@@ -1336,15 +1447,13 @@ void misiKiri() {
   belok(-90);
 
   for (int i = 0; i < 4; i++) {
-    maju(1.5,0,1);
-    maju(0.2);
-    putarStepper(1, -1);
-    belok(90);
-    belok(90);
-    maju(1.5,0,1);
-    maju(0.2);
+    maju(1.7,0,1);
+    putarStepper(2, -1);
+    belok(-90);
+    belok(-90);
+    maju(1.75,0,1);
     vTaskDelay(pdMS_TO_TICKS(50));
-    putarStepper(1, 1);
+    putarStepper(2, 1);
     maju(-0.15,0,0);
     if (i > 4) break;
     belok(-90);
