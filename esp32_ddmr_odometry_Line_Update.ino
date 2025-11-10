@@ -128,7 +128,7 @@ double prev_error_dist = 0.0;
 double integral_dist = 0.0;
 
 double kp_angle = 2.0;    // Proportional gain untuk sudut
-double ki_angle = 0.005;  // Integral gain untuk sudut
+double ki_angle = 0.001;  // Integral gain untuk sudut
 double kd_angle = 30.0;   // Derivative gain untuk sudut
 double prev_error_angle = 0.0;
 double integral_angle = 0.0;
@@ -146,10 +146,11 @@ volatile float gyroHeading = 0.0;
 volatile unsigned long lastDriftCorrection = 0;
 float homeHeading = 0.0;  // Heading home reference
 
-volatile int lineSensorRaw[5] = { 0, 0, 0 , 0, 0};
-volatile bool lineSensorDigital[5] = { 0, 0, 0 , 0, 0};
+volatile int lineSensorRaw[5] = { 0, 0, 0, 0, 0 };
+volatile bool lineSensorDigital[5] = { 0, 0, 0, 0, 0 };
 SemaphoreHandle_t sensorMutex;
-int lineThreshold[5] = {2000, 2000, 2000, 2000, 2000};  // Nilai threshold untuk setiap sensor, di atas threshold == hitam == 1
+int lineThreshold[5] = { 2000, 2000, 2000, 2000, 2000};  // Nilai threshold untuk setiap sensor, di atas threshold == hitam == 1
+
 
 // BLE variables
 BLEServer *pServer = NULL;
@@ -378,7 +379,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     // Koreksi heading menggunakan gyro
     if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
       currentHeading = gyroHeading;
-      allSensorsBlack = (lineSensorDigital[0] && lineSensorDigital[1] && lineSensorDigital[2]);
+      allSensorsBlack = (lineSensorDigital[0] && lineSensorDigital[2] && lineSensorDigital[4]);
       xSemaphoreGive(sensorMutex);
     }
 
@@ -421,7 +422,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     // Anti-jiggle
     if (abs(errorHeading) < 0.15) {
       consecutiveSmallErrors++;
-      if (consecutiveSmallErrors >= 3) {
+      if (consecutiveSmallErrors >= 2) {
         Serial.print("✓ Gyro correction selesai | Final error: ");
         Serial.print(errorHeading, 2);
         Serial.println("°");
@@ -464,199 +465,134 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     // Phase 1: Find black line with sweeping
     bool lineFound = false;
     int sweepCount = 0;
+    bool sweepRight = true;
     
     while (!lineFound && sweepCount < 2) {
-      // Check all sensors with proper OR logic
       if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(15)) == pdTRUE) {
-        lineFound = (lineSensorDigital[0] || lineSensorDigital[1] || 
-                     lineSensorDigital[2] || lineSensorDigital[3] || 
-                     lineSensorDigital[4]);
+        if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[4] || lineSensorDigital[3] || lineSensorDigital[2]) {
+          lineFound = true;
+        }
         xSemaphoreGive(sensorMutex);
       }
       
-      if (lineFound) {
-        Serial.println("Line detected before sweep!");
-        break;
-      }
-      
-      const int sweepSpeed = 100;
-      const int sweepDuration = 1500;
-      
-      // Sweep RIGHT
-      Serial.println("Sweeping right...");
-      setMotorSpeed(sweepSpeed, 20);
-      for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-        if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-          lineFound = (lineSensorDigital[0] || lineSensorDigital[1] || 
-                       lineSensorDigital[2] || lineSensorDigital[3] || 
-                       lineSensorDigital[4]);
-          xSemaphoreGive(sensorMutex);
+      if (!lineFound) {
+        const int sweepSpeed = 100;   // Kecepatan motor saat sweep
+        const int sweepDuration = 1000; // Durasi tiap gerakan (ms), sesuaikan dengan robot
+        
+        // Sweep kanan
+        setMotorSpeed(sweepSpeed, 20);
+        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(15)) == pdTRUE) {
+            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[4] || lineSensorDigital[3] || lineSensorDigital[2]) {
+              // lineFound = true;
+            }
+            xSemaphoreGive(sensorMutex);
+          }
         }
-        if (lineFound) {
-          Serial.println("Line found during right sweep!");
-          break;
+        if (lineFound) break;
+        
+        // Balik kanan
+        setMotorSpeed(-sweepSpeed, -20);
+        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(15)) == pdTRUE) {
+            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[4] || lineSensorDigital[3] || lineSensorDigital[2]) {
+              lineFound = true;
+            }
+            xSemaphoreGive(sensorMutex);
+          }
         }
-      }
-      if (lineFound) break;
-      
-      // Return from RIGHT sweep
-      Serial.println("Returning from right...");
-      setMotorSpeed(-sweepSpeed, -20);
-      for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-        if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-          lineFound = (lineSensorDigital[0] || lineSensorDigital[1] || 
-                       lineSensorDigital[2] || lineSensorDigital[3] || 
-                       lineSensorDigital[4]);
-          xSemaphoreGive(sensorMutex);
-        }
-        if (lineFound) {
-          Serial.println("Line found returning from right!");
-          break;
-        }
-      }
-      if (lineFound) break;
+        if (lineFound) break;
 
-      // Sweep LEFT
-      Serial.println("Sweeping left...");
-      setMotorSpeed(20, sweepSpeed);
-      for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-        if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-          lineFound = (lineSensorDigital[0] || lineSensorDigital[1] || 
-                       lineSensorDigital[2] || lineSensorDigital[3] || 
-                       lineSensorDigital[4]);
-          xSemaphoreGive(sensorMutex);
+        // Sweep kiri
+        setMotorSpeed(20, sweepSpeed);
+        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(15)) == pdTRUE) {
+            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[4] || lineSensorDigital[3] || lineSensorDigital[2]) {
+              // lineFound = true;
+            }
+            xSemaphoreGive(sensorMutex);
+          }
         }
-        if (lineFound) {
-          Serial.println("Line found during left sweep!");
-          break;
+        if (lineFound) break;
+        
+        // Balik kiri
+        setMotorSpeed(-20, -sweepSpeed);
+        for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+          if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(15)) == pdTRUE) {
+            if (lineSensorDigital[0] || lineSensorDigital[1] || lineSensorDigital[4] || lineSensorDigital[3] || lineSensorDigital[2]) {
+              lineFound = true;
+            }
+            xSemaphoreGive(sensorMutex);
+          }
         }
+        if (lineFound) break;
+        
+        sweepCount++;
       }
-      if (lineFound) break;
-      
-      // Return from LEFT sweep
-      Serial.println("Returning from left...");
-      setMotorSpeed(-20, -sweepSpeed);
-      for (int i = 0; i < sweepDuration/50 && !lineFound; i++) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-        if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-          lineFound = (lineSensorDigital[0] || lineSensorDigital[1] || 
-                       lineSensorDigital[2] || lineSensorDigital[3] || 
-                       lineSensorDigital[4]);
-          xSemaphoreGive(sensorMutex);
-        }
-        if (lineFound) {
-          Serial.println("Line found returning from left!");
-          break;
-        }
-      }
-      if (lineFound) break;
-      
-      sweepCount++;
-      Serial.print("Sweep iteration ");
-      Serial.print(sweepCount);
-      Serial.println(" completed");
     }
-    
-    stopMotors();
-    vTaskDelay(pdMS_TO_TICKS(100));
     
     if (!lineFound) {
-      Serial.println("⚠ Line NOT found after sweeping!");
-      navigationActive = false;
-      return;  // Exit early if no line found
+      Serial.println("Line not found after sweeping, force follow.");
+      stopMotors();
     }
-    
-    Serial.println("✓ Line found! Starting centering...");
 
-    // Phase 2: Center on line and follow
+    // Phase 2: Center on line and follow while maintaining heading
+    Serial.println("Line found, centering...");
     int consecutiveCenter = 0;
     unsigned long followStart = millis();
-    const int maxFollowTime = 10000;
     
-    while (consecutiveCenter < 20 && (millis() - followStart < maxFollowTime)) {
+    while (consecutiveCenter < 10 && (millis() - followStart < 10000)) {
       bool sensor[5];
+      float currentHeading;
       
       if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        for (int i = 0; i < 5; i++) {
-          sensor[i] = lineSensorDigital[i];
-        }
+        sensor[0] = lineSensorDigital[0];
+        sensor[1] = lineSensorDigital[1];
+        sensor[2] = lineSensorDigital[2];
+        sensor[3] = lineSensorDigital[3];
+        sensor[4] = lineSensorDigital[4];
+        currentHeading = gyroHeading;
         xSemaphoreGive(sensorMutex);
       }
       
       // Line following logic
-      int baseSpeed = 10;     // Increased from 10
-      int turnSpeed = 80;     // Reduced from 100
+      int baseSpeed = 30; // Kecepatan dasar
+      int turnSpeed = 120; // Kecepatan untuk belok
+
       int leftSpeed = baseSpeed;
       int rightSpeed = baseSpeed;
 
-      // Priority: Center sensor (perfectly aligned)
-      if (sensor[2]) {
+      // Prioritaskan sensor paling luar jika aktif
+      if (sensor[2]) { // Sensor tengah aktif -> lurus
         consecutiveCenter++;
-        leftSpeed = baseSpeed;
-        rightSpeed = baseSpeed;
-      } 
-      // Far left sensor - sharp left turn
-      else if (sensor[0]) {
+      } else {
         consecutiveCenter = 0;
-        leftSpeed = baseSpeed - turnSpeed;
-        rightSpeed = baseSpeed + turnSpeed;
-      } 
-      // Far right sensor - sharp right turn
-      else if (sensor[4]) {
-        consecutiveCenter = 0;
-        leftSpeed = baseSpeed + turnSpeed;
-        rightSpeed = baseSpeed - turnSpeed;
-      } 
-      // Left inner sensor - gentle left
-      else if (sensor[1]) {
-        consecutiveCenter = 0;
-        leftSpeed = baseSpeed - (turnSpeed / 2);
-        rightSpeed = baseSpeed + (turnSpeed / 2);
-      } 
-      // Right inner sensor - gentle right
-      else if (sensor[3]) {
-        consecutiveCenter = 0;
-        leftSpeed = baseSpeed + (turnSpeed / 2);
-        rightSpeed = baseSpeed - (turnSpeed / 2);
-      } 
-      // No sensor - lost line, stop
-      else {
-        consecutiveCenter = 0;
-        leftSpeed = 0;
-        rightSpeed = 0;
-        Serial.println("⚠ Lost line during follow!");
+        if (sensor[0]) { // Sensor kiri luar aktif -> belok tajam ke kiri
+          leftSpeed = baseSpeed + turnSpeed;
+          rightSpeed = baseSpeed - turnSpeed;
+        } else if (sensor[4]) { // Sensor kanan luar aktif -> belok tajam ke kanan
+          leftSpeed = baseSpeed - turnSpeed;
+          rightSpeed = baseSpeed + turnSpeed;
+        } else if (sensor[1]) { // Sensor kiri dalam aktif -> belok ke kiri
+          leftSpeed = baseSpeed + (turnSpeed / 2); // Belok lebih lembut
+          rightSpeed = baseSpeed - (turnSpeed / 2);
+        } else if (sensor[3]) { // Sensor kanan dalam aktif -> belok ke kanan
+          leftSpeed = baseSpeed - (turnSpeed / 2); // Belok lebih lembut
+          rightSpeed = baseSpeed + (turnSpeed / 2);
+        } else {
+          leftSpeed = baseSpeed;
+          rightSpeed = baseSpeed;
+        }
       }
-      
       setMotorSpeed(leftSpeed, rightSpeed);
-      vTaskDelay(pdMS_TO_TICKS(10));
-      
-      // Debug every 50 iterations
-      static int debugCounter = 0;
-      if (++debugCounter >= 50) {
-        Serial.print("Following: ");
-        Serial.print(sensor[0]);
-        Serial.print(sensor[1]);
-        Serial.print(sensor[2]);
-        Serial.print(sensor[3]);
-        Serial.print(sensor[4]);
-        Serial.print(" | Center count: ");
-        Serial.println(consecutiveCenter);
-        debugCounter = 0;
-      }
+      vTaskDelay(pdMS_TO_TICKS(5));
     }
     
     stopMotors();
-    
-    if (consecutiveCenter >= 20) {
-      Serial.println("✓ Line centered successfully!");
-    } else {
-      Serial.println("⚠ Line follow timeout");
-    }
-
-    
 
     // Correct heading after line follow
     for (int i = 0; i < 100; i++) {
@@ -678,7 +614,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       // Anti-jiggle
       if (abs(errorHeading) < 0.15) {
         consecutiveSmallErrors++;
-        if (consecutiveSmallErrors >= 3) {
+        if (consecutiveSmallErrors >= 2) {
           Serial.print("✓ Gyro correction selesai | Final error: ");
           Serial.print(errorHeading, 2);
           Serial.println("°");
@@ -745,7 +681,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     // Koreksi heading menggunakan gyro
     if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
       currentHeading = gyroHeading;
-      allSensorsBlack = (lineSensorDigital[0] && lineSensorDigital[1] && lineSensorDigital[2]);
+      allSensorsBlack = (lineSensorDigital[0] && lineSensorDigital[2] && lineSensorDigital[4]);
       xSemaphoreGive(sensorMutex);
     }
 
@@ -791,7 +727,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     // Anti-jiggle
     if (abs(errorHeading) < 0.15) {
       consecutiveSmallErrors++;
-      if (consecutiveSmallErrors >= 3) {
+      if (consecutiveSmallErrors >= 2) {
         Serial.print("✓ Gyro correction selesai | Final error: ");
         Serial.print(errorHeading, 2);
         Serial.println("°");
@@ -843,8 +779,8 @@ void belok(double derajat) {
   integral_gyro = 0.0;
   prev_error_gyro = 0.0;
 
-  double startTheta = robotPose.theta * 180.0 / PI;
-  double targetTheta = startTheta + derajat;
+  double startTheta = robotPose.theta * 180.0 / PI;  // Konversi ke DERAJAT
+  double targetTheta = startTheta + derajat;         // LANGSUNG pakai derajat!
   float startHeading;
 
   if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -859,30 +795,40 @@ void belok(double derajat) {
   Serial.print("=== Belok ");
   Serial.print(derajat);
   Serial.println(" derajat ===");
+  Serial.print("Start theta: ");
+  Serial.print(startTheta, 2);
+  Serial.print("° → Target theta: ");
+  Serial.print(targetTheta, 2);
+  Serial.println("°");
+  Serial.print("Start heading: ");
+  Serial.print(startHeading, 2);
+  Serial.println("°");
 
   // FASE 1: Belok dengan odometry
   unsigned long lastPrint = millis();
   while (turnRobot && navigationActive) {
-    double currentTheta = robotPose.theta * 180.0 / PI;
-    double remainingAngle = targetTheta - currentTheta;
+
+    double currentTheta = robotPose.theta * 180.0 / PI;  // DERAJAT
+    double remainingAngle = targetTheta - currentTheta;  // DERAJAT
 
     // Normalisasi remaining angle
     if (remainingAngle > 180) remainingAngle -= 360;
     if (remainingAngle <= -180) remainingAngle += 360;
 
-    // Reduced debug printing - only every 500ms
-    if (millis() - lastPrint > 500) {
-      Serial.print("Remaining: ");
+    // Debug setiap 200ms
+    if (millis() - lastPrint > 200) {
+      Serial.print("Current theta: ");
+      Serial.print(currentTheta, 2);
+      Serial.print("° | Remaining: ");
       Serial.print(remainingAngle, 2);
       Serial.println("°");
       lastPrint = millis();
     }
 
-    // Increased tolerance to exit odometry phase earlier
-    if (abs(remainingAngle) < 2.0) {  // 2 degree tolerance instead of 0.5
+    if (abs(remainingAngle) < 1.0) {  // 2 derajat toleransi
       stopMotors();
       turnRobot = false;
-      Serial.println("✓ Odometry done");
+      Serial.println("✓ Fase odometry selesai");
       break;
     }
 
@@ -895,20 +841,25 @@ void belok(double derajat) {
     double turn_output = kp_angle * abs(error_angle) + ki_angle * integral_angle + kd_angle * abs(derivative_angle);
     int turnSpeed = constrain((int)turn_output, 30, 120);
 
+    // remainingAngle > 0 → theta perlu naik → CCW (kiri)
     if (remainingAngle > 0) {
-      setMotorSpeed(-turnSpeed, turnSpeed);
+      setMotorSpeed(-turnSpeed, turnSpeed);  // CCW
     } else {
-      setMotorSpeed(turnSpeed, -turnSpeed);
+      setMotorSpeed(turnSpeed, -turnSpeed);  // CW
     }
 
-    vTaskDelay(pdMS_TO_TICKS(10));  // Reduced from 20ms
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
   stopMotors();
 
-  // FASE 2: Quick gyro correction
-  vTaskDelay(pdMS_TO_TICKS(100));  // Reduced settling time
+  // FASE 2: Koreksi dengan gyro
+  vTaskDelay(pdMS_TO_TICKS(100));
 
-  float targetHeading = startHeading - derajat;
+  // Gyro berlawanan: CW → heading turun
+  // belok(+45) CW → theta +45° → heading -45°
+  float targetHeading = startHeading - derajat;  // INVERSI
+
+  // Normalisasi target heading
   while (targetHeading > 180) targetHeading -= 360;
   while (targetHeading <= -180) targetHeading += 360;
 
@@ -919,13 +870,13 @@ void belok(double derajat) {
   }
 
   Serial.print("Gyro correction | Target: ");
-  Serial.print(targetHeading, 1);
+  Serial.print(targetHeading, 2);
   Serial.print("° | Current: ");
-  Serial.println(currentHeadingNow, 1);
+  Serial.print(currentHeadingNow, 2);
+  Serial.println("°");
 
-  int maxCorrections = 200;  // Reduced from 1000
+  int maxCorrections = 200;
   int consecutiveSmallErrors = 0;
-  int iteration = 0;
 
   for (int i = 0; i < maxCorrections; i++) {
     float currentHeading;
@@ -943,11 +894,11 @@ void belok(double derajat) {
       errorHeading += 360;
     }
 
-    // Relaxed tolerance and faster exit
-    if (abs(errorHeading) < 0.5) {  // Relaxed from 0.15° to 0.5°
+    // Anti-jiggle
+    if (abs(errorHeading) < 0.5) {
       consecutiveSmallErrors++;
-      if (consecutiveSmallErrors >= 2) {  // Reduced from 3 to 2
-        Serial.print("✓ Gyro OK | Error: ");
+      if (consecutiveSmallErrors >= 2) {
+        Serial.print("✓ Gyro correction selesai | Final error: ");
         Serial.print(errorHeading, 2);
         Serial.println("°");
         break;
@@ -956,33 +907,212 @@ void belok(double derajat) {
       consecutiveSmallErrors = 0;
     }
 
-    // Timeout for very small errors
-    if (abs(errorHeading) < 1.0 && i > 50) {
-      Serial.println("✓ Gyro timeout, good enough");
+    // PID
+    double error_gyro = errorHeading;
+    integral_gyro += error_gyro;
+    integral_gyro = constrain(integral_gyro, -15, 15);
+
+    double derivative_gyro = error_gyro - prev_error_gyro;
+
+    double correction_output = 6.0 * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
+    int correctionSpeed = constrain(abs((int)correction_output),35, 65);
+
+    prev_error_gyro = error_gyro;
+
+    Serial.print("#");
+    Serial.print(i + 1);
+    Serial.print(" Heading: ");
+    Serial.print(currentHeading, 2);
+    Serial.print("° | Error: ");
+    Serial.print(errorHeading, 1);
+    Serial.print("° | Speed: ");
+    Serial.print(correctionSpeed);
+    Serial.print(" | ");
+
+    // GYRO: errorHeading < 0 → heading perlu naik → CCW
+    if (errorHeading < 0) {
+      Serial.println("CCW ↺");
+      setMotorSpeed(-correctionSpeed, correctionSpeed);
+    } else {
+      Serial.println("CW ↻");
+      setMotorSpeed(correctionSpeed, -correctionSpeed);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(5));
+    stopMotors();
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+
+  stopMotors();
+  navigationActive = false;
+
+  float finalHeading;
+  double finalTheta = robotPose.theta * 180.0 / PI;  // DERAJAT
+  if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    finalHeading = gyroHeading;
+    xSemaphoreGive(sensorMutex);
+  }
+
+  Serial.println("==================");
+  Serial.print("Final theta: ");
+  Serial.print(finalTheta, 2);
+  Serial.print("° (target ");
+  Serial.print(targetTheta, 2);
+  Serial.print("°, error ");
+  Serial.print(targetTheta - finalTheta, 2);
+  Serial.println("°)");
+  Serial.print("Final heading: ");
+  Serial.print(finalHeading, 2);
+  Serial.print("° (target ");
+  Serial.print(targetHeading, 2);
+  Serial.print("°, error ");
+  Serial.print(targetHeading - finalHeading, 2);
+  Serial.println("°)");
+  Serial.println("==================");
+  vTaskDelay(pdMS_TO_TICKS(200));
+}
+void lompat(double jarak){
+  vTaskDelay(pdMS_TO_TICKS(20));
+  if (navigationActive) return;  // Mencegah navigasi bersamaan
+
+  navigationActive = true;
+  targetDistance = abs(jarak) * 0.95;  // Gunakan nilai absolut untuk kalkulasi jarak
+  targetStop = targetDistance * 0.89;  // Sama seperti follow mode
+  bool isForward = (jarak >= 0);       // Tentukan arah
+  moveForward = true;
+  turnRobot = false;
+
+  // Reset PID untuk ramping down
+  prev_error_dist = 0.0;
+  integral_dist = 0.0;
+
+  double startX = robotPose.x;
+  double startY = robotPose.y;
+
+  // Baca heading awal dari gyro
+  float startHeading;
+  if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    startHeading = gyroHeading;
+    xSemaphoreGive(sensorMutex);
+  }
+
+  Serial.print(isForward ? "Lompat maju " : "Lompat mundur ");
+  Serial.print(targetDistance);
+  Serial.print(" meter, heading awal: ");
+  Serial.println(startHeading);
+
+  bool allSensorsBlack = false;
+  bool wasWhite = true;  // Track transisi dari putih ke hitam
+  int lineCount = 0;     // Hitung berapa kali melewati garis hitam
+  int tunggu = 50;
+  float currentHeading = startHeading;
+  
+  while (moveForward && navigationActive) {
+    double currentDistance = sqrt(pow(robotPose.x - startX, 2) + pow(robotPose.y - startY, 2));
+    double remainingDistance = targetStop - currentDistance;
+
+    // Baca sensor dan deteksi garis
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      currentHeading = gyroHeading;
+      allSensorsBlack = (lineSensorDigital[0] && lineSensorDigital[2] && lineSensorDigital[4]);
+      xSemaphoreGive(sensorMutex);
+    }
+
+    // Deteksi transisi putih -> hitam untuk menghitung garis
+    if (allSensorsBlack && wasWhite) {
+      lineCount++;
+      Serial.print("Garis ke-");
+      Serial.println(lineCount);
+      wasWhite = false;  // Tandai sudah hitam
+    } else if (!allSensorsBlack) {
+      wasWhite = true;   // Kembali ke putih, siap deteksi garis berikutnya
+    }
+
+    // Stop setelah melewati 2 garis (skip garis pertama, stop di kedua)
+    if (lineCount >= 2) {
+      remainingDistance = 0;
+      tunggu = 50;
+    }
+
+    if (remainingDistance <= 0.005) {  // Toleransi 5mm
+      vTaskDelay(pdMS_TO_TICKS(tunggu));
+      stopMotors();
+      moveForward = false;
+      navigationActive = false;
       break;
     }
 
-    // PID with slightly more aggressive correction
+    // PID control untuk ramping down yang smooth
+    double error_dist = remainingDistance;
+    integral_dist += error_dist;
+    integral_dist = constrain(integral_dist, -500, ceil(abs(jarak))*75);
+    double derivative_dist = error_dist - prev_error_dist;
+    prev_error_dist = error_dist;
+
+    double speed_output = kp_dist * error_dist + ki_dist * integral_dist + kd_dist * derivative_dist;
+    int speed = constrain((int)speed_output, 25, 225);
+
+    // Koreksi heading menggunakan gyro
+    float headingError = startHeading - currentHeading;
+    // Normalisasi ke rentang -180 s.d. 180
+    if (headingError > 180.0f) headingError -= 360.0f;
+    if (headingError < -180.0f) headingError += 360.0f;
+    
+    int correction = (int)(headingError * 15);
+
+    // Terapkan arah dan koreksi heading
+    if (isForward) {
+      setMotorSpeed(speed + correction, speed - correction);
+    } else {
+      setMotorSpeed(-speed + correction, -speed - correction);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(5));  // 100 Hz navigation loop
+  }
+
+  // Koreksi heading setelah berhenti
+  int maxCorrections = 500;
+  int consecutiveSmallErrors = 0;
+
+  for (int i = 0; i < maxCorrections; i++) {
+    float currentHeading;
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      currentHeading = gyroHeading;
+      xSemaphoreGive(sensorMutex);
+    }
+
+    float errorHeading = startHeading - currentHeading;
+
+    // Normalisasi error
+    if (errorHeading > 180) {
+      errorHeading -= 360;
+    } else if (errorHeading <= -180) {
+      errorHeading += 360;
+    }
+
+    // Anti-jiggle
+    if (abs(errorHeading) < 0.15) {
+      consecutiveSmallErrors++;
+      if (consecutiveSmallErrors >= 2) {
+        Serial.print("✓ Gyro correction selesai | Final error: ");
+        Serial.print(errorHeading, 2);
+        Serial.println("°");
+        break;
+      }
+    } else {
+      consecutiveSmallErrors = 0;
+    }
+
+    // PID
     double error_gyro = errorHeading;
     integral_gyro += error_gyro;
-    integral_gyro = constrain(integral_gyro, -15, 15);  // Reduced integral limit
+    integral_gyro = constrain(integral_gyro, -20, 20);
 
     double derivative_gyro = error_gyro - prev_error_gyro;
     prev_error_gyro = error_gyro;
 
-    // Slightly increased P gain for faster response
-    double correction_output = 6.0 * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 35, 65);
-
-    // Minimal serial output - only every 10 iterations
-    if (i % 10 == 0) {
-      Serial.print("#");
-      Serial.print(i + 1);
-      Serial.print(" E:");
-      Serial.print(errorHeading, 1);
-      Serial.print("° S:");
-      Serial.println(correctionSpeed);
-    }
+    double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
+    int correctionSpeed = constrain(abs((int)correction_output), 40, 60);
 
     if (errorHeading < 0) {
       setMotorSpeed(-correctionSpeed, correctionSpeed);
@@ -990,30 +1120,223 @@ void belok(double derajat) {
       setMotorSpeed(correctionSpeed, -correctionSpeed);
     }
 
+    vTaskDelay(pdMS_TO_TICKS(15));
+    stopMotors();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+
+  stopMotors();
+  navigationActive = false;
+  Serial.print("Lompat selesai. Total garis yang dilewati: ");
+  Serial.println(lineCount);
+}
+
+
+void pivot(double derajat) {
+  vTaskDelay(pdMS_TO_TICKS(10));
+  if (navigationActive) return;
+
+  navigationActive = true;
+  turnRobot = true;
+  moveForward = false;
+
+  prev_error_angle = 0.0;
+  integral_angle = 0.0;
+  integral_gyro = 0.0;
+  prev_error_gyro = 0.0;
+
+  double startTheta = robotPose.theta * 180.0 / PI;  // Konversi ke DERAJAT
+  double targetTheta = startTheta + derajat;         // LANGSUNG pakai derajat!
+  float startHeading;
+
+  if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    startHeading = gyroHeading;
+    xSemaphoreGive(sensorMutex);
+  }
+
+  // Normalisasi target angle ke (-180, 180]
+  while (targetTheta > 180) targetTheta -= 360;
+  while (targetTheta <= -180) targetTheta += 360;
+
+  Serial.print("=== Belok ");
+  Serial.print(derajat);
+  Serial.println(" derajat ===");
+  Serial.print("Start theta: ");
+  Serial.print(startTheta, 2);
+  Serial.print("° → Target theta: ");
+  Serial.print(targetTheta, 2);
+  Serial.println("°");
+  Serial.print("Start heading: ");
+  Serial.print(startHeading, 2);
+  Serial.println("°");
+
+  // FASE 1: Belok dengan odometry
+  unsigned long lastPrint = millis();
+  while (turnRobot && navigationActive) {
+
+    double currentTheta = robotPose.theta * 180.0 / PI;  // DERAJAT
+    double remainingAngle = targetTheta - currentTheta;  // DERAJAT
+
+    // Normalisasi remaining angle
+    if (remainingAngle > 180) remainingAngle -= 360;
+    if (remainingAngle <= -180) remainingAngle += 360;
+
+    // Debug setiap 200ms
+    if (millis() - lastPrint > 200) {
+      Serial.print("Current theta: ");
+      Serial.print(currentTheta, 2);
+      Serial.print("° | Remaining: ");
+      Serial.print(remainingAngle, 2);
+      Serial.println("°");
+      lastPrint = millis();
+    }
+
+    if (abs(remainingAngle) < 1.0) {  // 2 derajat toleransi
+      stopMotors();
+      turnRobot = false;
+      Serial.println("✓ Fase odometry selesai");
+      break;
+    }
+
+    double error_angle = remainingAngle;
+    integral_angle += error_angle;
+    integral_angle = constrain(integral_angle, -20, 15);
+    double derivative_angle = error_angle - prev_error_angle;
+    prev_error_angle = error_angle;
+
+    double turn_output = kp_angle * abs(error_angle) + ki_angle * integral_angle + kd_angle * abs(derivative_angle);
+    int turnSpeed = constrain((int)turn_output, 30, 120);
+
+    // remainingAngle > 0 → theta perlu naik → CCW (kiri)
+    if (remainingAngle > 0) {
+      setMotorSpeed(-turnSpeed, 0);  // CCW
+    } else {
+      setMotorSpeed(0, -turnSpeed);  // CW
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+  stopMotors();
+
+  // FASE 2: Koreksi dengan gyro
+  vTaskDelay(pdMS_TO_TICKS(100));
+
+  // Gyro berlawanan: CW → heading turun
+  // belok(+45) CW → theta +45° → heading -45°
+  float targetHeading = startHeading - derajat;  // INVERSI
+
+  // Normalisasi target heading
+  while (targetHeading > 180) targetHeading -= 360;
+  while (targetHeading <= -180) targetHeading += 360;
+
+  float currentHeadingNow;
+  if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    currentHeadingNow = gyroHeading;
+    xSemaphoreGive(sensorMutex);
+  }
+
+  Serial.print("Gyro correction | Target: ");
+  Serial.print(targetHeading, 2);
+  Serial.print("° | Current: ");
+  Serial.print(currentHeadingNow, 2);
+  Serial.println("°");
+
+  int maxCorrections = 200;
+  int consecutiveSmallErrors = 0;
+
+  for (int i = 0; i < maxCorrections; i++) {
+    float currentHeading;
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      currentHeading = gyroHeading;
+      xSemaphoreGive(sensorMutex);
+    }
+
+    float errorHeading = targetHeading - currentHeading;
+
+    // Normalisasi error
+    if (errorHeading > 180) {
+      errorHeading -= 360;
+    } else if (errorHeading <= -180) {
+      errorHeading += 360;
+    }
+
+    // Anti-jiggle
+    if (abs(errorHeading) < 0.5) {
+      consecutiveSmallErrors++;
+      if (consecutiveSmallErrors >= 2) {
+        Serial.print("✓ Gyro correction selesai | Final error: ");
+        Serial.print(errorHeading, 2);
+        Serial.println("°");
+        break;
+      }
+    } else {
+      consecutiveSmallErrors = 0;
+    }
+
+    // PID
+    double error_gyro = errorHeading;
+    integral_gyro += error_gyro;
+    integral_gyro = constrain(integral_gyro, -15, 15);
+
+    double derivative_gyro = error_gyro - prev_error_gyro;
+
+    double correction_output = 6.0 * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
+    int correctionSpeed = constrain(abs((int)correction_output),35, 65);
+
+    prev_error_gyro = error_gyro;
+
+    Serial.print("#");
+    Serial.print(i + 1);
+    Serial.print(" Heading: ");
+    Serial.print(currentHeading, 2);
+    Serial.print("° | Error: ");
+    Serial.print(errorHeading, 1);
+    Serial.print("° | Speed: ");
+    Serial.print(correctionSpeed);
+    Serial.print(" | ");
+
+    // GYRO: errorHeading < 0 → heading perlu naik → CCW
+    if (errorHeading < 0) {
+      Serial.println("CCW ↺");
+      setMotorSpeed(-correctionSpeed, correctionSpeed);
+    } else {
+      Serial.println("CW ↻");
+      setMotorSpeed(correctionSpeed, -correctionSpeed);
+    }
+
     vTaskDelay(pdMS_TO_TICKS(5));
     stopMotors();
-    vTaskDelay(pdMS_TO_TICKS(5));  // Reduced from 10ms
+    vTaskDelay(pdMS_TO_TICKS(5));
   }
 
   stopMotors();
   navigationActive = false;
 
-  // Final status - simplified
   float finalHeading;
+  double finalTheta = robotPose.theta * 180.0 / PI;  // DERAJAT
   if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
     finalHeading = gyroHeading;
     xSemaphoreGive(sensorMutex);
   }
 
-  Serial.print("Done | Final heading: ");
-  Serial.print(finalHeading, 1);
-  Serial.print("° (error: ");
-  Serial.print(targetHeading - finalHeading, 1);
+  Serial.println("==================");
+  Serial.print("Final theta: ");
+  Serial.print(finalTheta, 2);
+  Serial.print("° (target ");
+  Serial.print(targetTheta, 2);
+  Serial.print("°, error ");
+  Serial.print(targetTheta - finalTheta, 2);
   Serial.println("°)");
-  
-  vTaskDelay(pdMS_TO_TICKS(200));  // Reduced settling time from 500ms
+  Serial.print("Final heading: ");
+  Serial.print(finalHeading, 2);
+  Serial.print("° (target ");
+  Serial.print(targetHeading, 2);
+  Serial.print("°, error ");
+  Serial.print(targetHeading - finalHeading, 2);
+  Serial.println("°)");
+  Serial.println("==================");
+  vTaskDelay(pdMS_TO_TICKS(200));
 }
-
 // Fungsi gojek - navigasi ke pose target dengan 3 tahap
 void gojek(double targetX, double targetY, double targetTheta) {
   if (navigationActive) return;  // Mencegah navigasi bersamaan
@@ -1117,7 +1440,7 @@ void gojek(double targetX, double targetY, double targetTheta) {
 
     if (abs(errorHeading) < 0.15) {
       consecutiveSmallErrors++;
-      if (consecutiveSmallErrors >= 3) {
+      if (consecutiveSmallErrors >= 2) {
         Serial.print("✓ Heading final OK | Error: ");
         Serial.print(errorHeading, 2);
         Serial.println("°");
@@ -1463,7 +1786,7 @@ void ledTask(void *parameter) {
       Serial.print(line4_raw);
       Serial.print("-");
       Serial.print(line5_raw);
-      Serial.print(" | Digital: ");
+      Serial.print("  | Digital: ");
       Serial.print(line1_digital);
       Serial.print("-");
       Serial.print(line2_digital);
@@ -1495,7 +1818,7 @@ void ledTask(void *parameter) {
 void misiKanan() {
   maju(0.18,0,0);
   belok(-90);
-  maju(0.28,1,0);
+  lompat(43.0);
   belok(90);
 
   for (int i = 0; i < 5; i++) {
@@ -1508,10 +1831,12 @@ void misiKanan() {
     putarStepper(3, 1);
     maju(-0.15,0,0);
     if (i == 4) break;
-    belok(90);
-    maju(0.15,0,0);
-    belok(90);
+    pivot(-90);
+    // maju(0.15,0,0);
+    pivot(-90);
     maju(-0.15,0,0);
+    vTaskDelay(pdMS_TO_TICKS(50));
+
   }
 
   belok(90);
@@ -1528,7 +1853,7 @@ void misiKanan() {
 void misiKiri() {
   maju(0.18,0,0);
   belok(90);
-  maju(0.28,1,0);
+  lompat(43.0);
   belok(-90);
 
   for (int i = 0; i < 5; i++) {
@@ -1541,10 +1866,12 @@ void misiKiri() {
     putarStepper(3, 1);
     maju(-0.15,0,0);
     if (i == 4) break;
-    belok(-90);
-    maju(0.15,0,0);
-    belok(-90);
+    pivot(90);
+    // maju(0.15,0,0);
+    pivot(90);
     maju(-0.15,0,0);
+    vTaskDelay(pdMS_TO_TICKS(50));
+
   }
 
   belok(90);
@@ -1672,48 +1999,45 @@ void setup() {
 
 void loop() {
   // Handle BLE messages
-  // if (newMessageReceived) {
-  //   String command = String(receivedMessage.c_str());
-  //   command.trim();
-  //   newMessageReceived = false;
+  if (newMessageReceived) {
+    String command = String(receivedMessage.c_str());
+    command.trim();
+    newMessageReceived = false;
 
-  //   Serial.print("BLE Command received: ");
-  //   Serial.println(command);
+    Serial.print("BLE Command received: ");
+    Serial.println(command);
 
-  //   if (command == "R" || command == "r") {
-  //     Serial.println("Starting misiKanan...");
-    vTaskDelay(pdMS_TO_TICKS(1000));
-
+    if (command == "R" || command == "r") {
+      Serial.println("Starting misiKanan...");
       misiKanan();
-  //   } else if (command == "L" || command == "l") {
-  //     Serial.println("Starting misiKiri...");
-      // misiKiri();
-  //   } else if (command == "K" || command == "k") {
-  //     Serial.println("Starting kalibrasi line sensor...");
-      // kalibrasiLineSensor();
-  //   } else if (command.toFloat() != 0.0) {
-  //     double jarak = command.toFloat();
-  //     Serial.print("Maju jarak: ");
-  //     Serial.println(jarak);
-  //     maju(jarak);
-  //   } else if (command == "up") {
-  //     putarStepper(1, -1);
-  //   } else if (command == "down") {
-  //     putarStepper(1, 1);
-  //   } else if (command == "tes") {
-  //     maju(0.1, false, true);
-  //     maju(0.1,0,0);
-  //   } else {
-  //     Serial.println("Unknown BLE command");
-  //   }
-  // }
+    } else if (command == "L" || command == "l") {
+      Serial.println("Starting misiKiri...");
+      misiKiri();
+    } else if (command == "K" || command == "k") {
+      Serial.println("Starting kalibrasi line sensor...");
+      kalibrasiLineSensor();
+    } else if (command.toFloat() != 0.0) {
+      double jarak = command.toFloat();
+      Serial.print("Maju jarak: ");
+      Serial.println(jarak);
+      maju(jarak);
+    } else if (command == "up") {
+      putarStepper(1, -1);
+    } else if (command == "down") {
+      putarStepper(1, 1);
+    } else if (command == "tes") {
+      maju(0.2, false, true);
+    } else {
+      Serial.println("Unknown BLE command");
+    }
+  }
 
-  // // Handle disconnection
-  // if (!deviceConnected) {
-  //   vTaskDelay(pdMS_TO_TICKS(500));
-  //   pServer->startAdvertising();
-  //   Serial.println("Start advertising");
-  // }
+  // Handle disconnection
+  if (!deviceConnected) {
+    vTaskDelay(pdMS_TO_TICKS(500));
+    pServer->startAdvertising();
+    Serial.println("Start advertising");
+  }
 
   vTaskDelay(pdMS_TO_TICKS(100));
 }
