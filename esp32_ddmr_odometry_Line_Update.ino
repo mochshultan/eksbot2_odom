@@ -160,7 +160,7 @@ String receivedMessage = "";
 volatile bool newMessageReceived = false;
 
 #define SERVICE_UUID "12345678-1234-1234-1234-123456789abc"
-#define CHARACTERISTIC_UUID "87654321-4321-4321-4321-cba987654321"
+#define CHARACTERISTIC_UUID "6edb0453-573b-477f-8761-071b7fff962c"
 
 // ========== BLE CALLBACKS ==========
 class MyServerCallbacks : public BLEServerCallbacks {
@@ -1158,17 +1158,17 @@ void pivot(double derajat) {
   while (targetTheta > 180) targetTheta -= 360;
   while (targetTheta <= -180) targetTheta += 360;
 
-  Serial.print("=== Belok ");
-  Serial.print(derajat);
-  Serial.println(" derajat ===");
-  Serial.print("Start theta: ");
-  Serial.print(startTheta, 2);
-  Serial.print("° → Target theta: ");
-  Serial.print(targetTheta, 2);
-  Serial.println("°");
-  Serial.print("Start heading: ");
-  Serial.print(startHeading, 2);
-  Serial.println("°");
+  // Serial.print("=== Belok ");
+  // Serial.print(derajat);
+  // Serial.println(" derajat ===");
+  // Serial.print("Start theta: ");
+  // Serial.print(startTheta, 2);
+  // Serial.print("° → Target theta: ");
+  // Serial.print(targetTheta, 2);
+  // Serial.println("°");
+  // Serial.print("Start heading: ");
+  // Serial.print(startHeading, 2);
+  // Serial.println("°");
 
   // FASE 1: Belok dengan odometry
   unsigned long lastPrint = millis();
@@ -1183,11 +1183,11 @@ void pivot(double derajat) {
 
     // Debug setiap 200ms
     if (millis() - lastPrint > 200) {
-      Serial.print("Current theta: ");
-      Serial.print(currentTheta, 2);
-      Serial.print("° | Remaining: ");
-      Serial.print(remainingAngle, 2);
-      Serial.println("°");
+      // Serial.print("Current theta: ");
+      // Serial.print(currentTheta, 2);
+      // Serial.print("° | Remaining: ");
+      // Serial.print(remainingAngle, 2);
+      // Serial.println("°");
       lastPrint = millis();
     }
 
@@ -1235,11 +1235,11 @@ void pivot(double derajat) {
     xSemaphoreGive(sensorMutex);
   }
 
-  Serial.print("Gyro correction | Target: ");
-  Serial.print(targetHeading, 2);
-  Serial.print("° | Current: ");
-  Serial.print(currentHeadingNow, 2);
-  Serial.println("°");
+  // Serial.print("Gyro correction | Target: ");
+  // Serial.print(targetHeading, 2);
+  // Serial.print("° | Current: ");
+  // Serial.print(currentHeadingNow, 2);
+  // Serial.println("°");
 
   int maxCorrections = 200;
   int consecutiveSmallErrors = 0;
@@ -1285,15 +1285,15 @@ void pivot(double derajat) {
 
     prev_error_gyro = error_gyro;
 
-    Serial.print("#");
-    Serial.print(i + 1);
-    Serial.print(" Heading: ");
-    Serial.print(currentHeading, 2);
-    Serial.print("° | Error: ");
-    Serial.print(errorHeading, 1);
-    Serial.print("° | Speed: ");
-    Serial.print(correctionSpeed);
-    Serial.print(" | ");
+    // Serial.print("#");
+    // Serial.print(i + 1);
+    // Serial.print(" Heading: ");
+    // Serial.print(currentHeading, 2);
+    // Serial.print("° | Error: ");
+    // Serial.print(errorHeading, 1);
+    // Serial.print("° | Speed: ");
+    // Serial.print(correctionSpeed);
+    // Serial.print(" | ");
 
     // GYRO: errorHeading < 0 → heading perlu naik → CCW
     if (errorHeading < 0) {
@@ -1319,22 +1319,22 @@ void pivot(double derajat) {
     xSemaphoreGive(sensorMutex);
   }
 
-  Serial.println("==================");
-  Serial.print("Final theta: ");
-  Serial.print(finalTheta, 2);
-  Serial.print("° (target ");
-  Serial.print(targetTheta, 2);
-  Serial.print("°, error ");
-  Serial.print(targetTheta - finalTheta, 2);
-  Serial.println("°)");
-  Serial.print("Final heading: ");
-  Serial.print(finalHeading, 2);
-  Serial.print("° (target ");
-  Serial.print(targetHeading, 2);
-  Serial.print("°, error ");
-  Serial.print(targetHeading - finalHeading, 2);
-  Serial.println("°)");
-  Serial.println("==================");
+  // Serial.println("==================");
+  // Serial.print("Final theta: ");
+  // Serial.print(finalTheta, 2);
+  // Serial.print("° (target ");
+  // Serial.print(targetTheta, 2);
+  // Serial.print("°, error ");
+  // Serial.print(targetTheta - finalTheta, 2);
+  // Serial.println("°)");
+  // Serial.print("Final heading: ");
+  // Serial.print(finalHeading, 2);
+  // Serial.print("° (target ");
+  // Serial.print(targetHeading, 2);
+  // Serial.print("°, error ");
+  // Serial.print(targetHeading - finalHeading, 2);
+  // Serial.println("°)");
+  // Serial.println("==================");
   vTaskDelay(pdMS_TO_TICKS(200));
 }
 // Fungsi gojek - navigasi ke pose target dengan 3 tahap
