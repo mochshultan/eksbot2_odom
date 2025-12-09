@@ -1,5 +1,6 @@
 /*
  * Made by: @mochshultan
+ - Updated by Rei2408
  * ESP32 DDMR Robot with FreeRTOS
  * Core 0: Odometry and Navigation System with TB6612FNG Motor Driver
  * Core 1: LED Blink
@@ -29,9 +30,11 @@
 // Line Sensor Pins
 #define LINE_SENSOR_1 15  // D15
 #define LINE_SENSOR_2 2   // D2
-#define LINE_SENSOR_3 4   // D4
+#define LINE_SENSOR_3 34   // D34
 #define LINE_SENSOR_4 36  // VP (Analog pin)
 #define LINE_SENSOR_5 39  // DVN (Analog pin)
+
+#define BUZZER 4
 
 // ====== Stepper =======
 #define IN1 14
@@ -249,6 +252,12 @@ void stopMotors() {
   digitalWrite(MOTOR_STBY, HIGH);
 }
 
+void buzzthetone() {
+  digitalWrite(BUZZER, HIGH);
+  tone(BUZZER, 4000, 500);
+  digitalWrite(BUZZER, LOW);
+}
+
 // ========== ODOMETRY FUNCTIONS ==========
 void updateOdometry() {
   long currentLeftCount, currentRightCount;
@@ -321,7 +330,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
 
   navigationActive = true;
   targetDistance = abs(jarak) * 0.95;  // Gunakan nilai absolut untuk kalkulasi jarak
-  targetStop = (follow) ? targetDistance * 0.89 : targetDistance;
+  targetStop = (follow) ? targetDistance * 0.85 : targetDistance;
   bool isForward = (jarak >= 0);       // Tentukan arah
   moveForward = true;
   turnRobot = false;
@@ -374,7 +383,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     prev_error_dist = error_dist;
 
     double speed_output = kp_dist * error_dist + ki_dist * integral_dist + kd_dist * derivative_dist;
-    int speed = constrain((int)speed_output, 25, 225);
+    int speed = constrain((int)speed_output, 25, 80);
 
     // Koreksi heading menggunakan gyro
     if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -435,13 +444,13 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     // PID
     double error_gyro = errorHeading;
     integral_gyro += error_gyro;
-    integral_gyro = constrain(integral_gyro, -20, 20);
+    integral_gyro = constrain(integral_gyro, -5, 5);
 
     double derivative_gyro = error_gyro - prev_error_gyro;
     prev_error_gyro = error_gyro;
 
     double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 40, 60);
+    int correctionSpeed = constrain(abs((int)correction_output), 30, 55);
 
     // GYRO: errorHeading < 0 → heading perlu naik → CCW
     if (errorHeading < 0) {
@@ -476,8 +485,8 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       }
       
       if (!lineFound) {
-        const int sweepSpeed = 100;   // Kecepatan motor saat sweep
-        const int sweepDuration = 1000; // Durasi tiap gerakan (ms), sesuaikan dengan robot
+        const int sweepSpeed = 90;   // Kecepatan motor saat sweep
+        const int sweepDuration = 1250; // Durasi tiap gerakan (ms), sesuaikan dengan robot
         
         // Sweep kanan
         setMotorSpeed(sweepSpeed, 20);
@@ -560,8 +569,8 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       }
       
       // Line following logic
-      int baseSpeed = 30; // Kecepatan dasar
-      int turnSpeed = 120; // Kecepatan untuk belok
+      int baseSpeed = 20; // Kecepatan dasar
+      int turnSpeed = 30; // Kecepatan untuk belok
 
       int leftSpeed = baseSpeed;
       int rightSpeed = baseSpeed;
@@ -602,7 +611,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
         xSemaphoreGive(sensorMutex);
       }
 
-      float errorHeading = homeHeading - currentHeading;
+      float errorHeading = startHeading - currentHeading;
 
       // Normalisasi error
     if (errorHeading > 90) {
@@ -612,7 +621,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     }
 
       // Anti-jiggle
-      if (abs(errorHeading) < 0.15) {
+      if (abs(errorHeading) < 0.2) {
         consecutiveSmallErrors++;
         if (consecutiveSmallErrors >= 2) {
           Serial.print("✓ Gyro correction selesai | Final error: ");
@@ -627,13 +636,13 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
       // PID
       double error_gyro = errorHeading;
       integral_gyro += error_gyro;
-      integral_gyro = constrain(integral_gyro, -25, 25);
+      integral_gyro = constrain(integral_gyro, -5, 5);
 
       double derivative_gyro = error_gyro - prev_error_gyro;
       prev_error_gyro = error_gyro;
 
       double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-      int correctionSpeed = constrain(abs((int)correction_output), 30, 50);
+      int correctionSpeed = constrain(abs((int)correction_output), 10, 40);
 
       // GYRO: errorHeading < 0 → heading perlu naik → CCW
       if (errorHeading < 0) {
@@ -642,11 +651,12 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
         setMotorSpeed(correctionSpeed, -correctionSpeed);
       }
 
-      vTaskDelay(pdMS_TO_TICKS(20));
-      stopMotors();
       vTaskDelay(pdMS_TO_TICKS(10));
+      stopMotors();
+      vTaskDelay(pdMS_TO_TICKS(20));
     }
 
+    vTaskDelay(pdMS_TO_TICKS(100));
     // Maju sisa
     navigationActive = true;
     moveForward = true;
@@ -676,7 +686,7 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
     prev_error_dist = error_dist;
 
     double speed_output = kp_dist * error_dist + ki_dist * integral_dist + kd_dist * derivative_dist;
-    int speed = constrain((int)speed_output, 25, 225);
+    int speed = constrain((int)speed_output, 30, 50);
 
     // Koreksi heading menggunakan gyro
     if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -694,70 +704,12 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
 
     // Terapkan arah dan koreksi heading
     if (isForward) {
-      setMotorSpeed(speed + correction, speed - correction);  // Maju dengan koreksi
+      setMotorSpeed(speed, speed);  // Maju dengan koreksi
     } else {
-      setMotorSpeed(-speed + correction, -speed - correction);  // Mundur dengan koreksi terbalik
+      setMotorSpeed(-speed, -speed);  // Mundur dengan koreksi terbalik
     }
 
     vTaskDelay(pdMS_TO_TICKS(5));  // 100 Hz navigation loop
-  }
-
-  stopMotors();
-  vTaskDelay(pdMS_TO_TICKS(10));
-
-  int maxCorrections = 100;
-  int consecutiveSmallErrors = 0;
-
-  for (int i = 0; i < maxCorrections; i++) {
-    float currentHeading;
-    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-      currentHeading = gyroHeading;
-      xSemaphoreGive(sensorMutex);
-    }
-
-    float errorHeading = startHeading - currentHeading;
-
-    // Normalisasi error
-    if (errorHeading > 180) {
-      errorHeading -= 360;
-    } else if (errorHeading <= -180) {
-      errorHeading += 360;
-    }
-
-    // Anti-jiggle
-    if (abs(errorHeading) < 0.15) {
-      consecutiveSmallErrors++;
-      if (consecutiveSmallErrors >= 2) {
-        Serial.print("✓ Gyro correction selesai | Final error: ");
-        Serial.print(errorHeading, 2);
-        Serial.println("°");
-        break;
-      }
-    } else {
-      consecutiveSmallErrors = 0;
-    }
-
-    // PID
-    double error_gyro = errorHeading;
-    integral_gyro += error_gyro;
-    integral_gyro = constrain(integral_gyro, -20, 20);
-
-    double derivative_gyro = error_gyro - prev_error_gyro;
-    prev_error_gyro = error_gyro;
-
-    double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 30, 50);
-
-    // GYRO: errorHeading < 0 → heading perlu naik → CCW
-    if (errorHeading < 0) {
-      setMotorSpeed(-correctionSpeed, correctionSpeed);
-    } else {
-      setMotorSpeed(correctionSpeed, -correctionSpeed);
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(15));
-    stopMotors();
-    vTaskDelay(pdMS_TO_TICKS(10));
   }
 
   stopMotors();
@@ -766,9 +718,12 @@ void maju(double jarak, bool rasis=false, bool follow=false) {
   }
 }
 
+
 void belok(double derajat) {
   vTaskDelay(pdMS_TO_TICKS(10));
   if (navigationActive) return;
+
+  derajat = ceil(1.02 * derajat);
 
   navigationActive = true;
   turnRobot = true;
@@ -825,7 +780,7 @@ void belok(double derajat) {
       lastPrint = millis();
     }
 
-    if (abs(remainingAngle) < 1.0) {  // 2 derajat toleransi
+    if (abs(remainingAngle) < 0.5) {  // 2 derajat toleransi
       stopMotors();
       turnRobot = false;
       Serial.println("✓ Fase odometry selesai");
@@ -839,7 +794,7 @@ void belok(double derajat) {
     prev_error_angle = error_angle;
 
     double turn_output = kp_angle * abs(error_angle) + ki_angle * integral_angle + kd_angle * abs(derivative_angle);
-    int turnSpeed = constrain((int)turn_output, 30, 120);
+    int turnSpeed = constrain((int)turn_output, 30, 100);
 
     // remainingAngle > 0 → theta perlu naik → CCW (kiri)
     if (remainingAngle > 0) {
@@ -852,96 +807,96 @@ void belok(double derajat) {
   }
   stopMotors();
 
-  // FASE 2: Koreksi dengan gyro
-  vTaskDelay(pdMS_TO_TICKS(100));
+  // // FASE 2: Koreksi dengan gyro
+  // vTaskDelay(pdMS_TO_TICKS(100));
 
-  // Gyro berlawanan: CW → heading turun
-  // belok(+45) CW → theta +45° → heading -45°
-  float targetHeading = startHeading - derajat;  // INVERSI
+  // // Gyro berlawanan: CW → heading turun
+  // // belok(+45) CW → theta +45° → heading -45°
+  // float targetHeading = startHeading - derajat;  // INVERSI
 
-  // Normalisasi target heading
-  while (targetHeading > 180) targetHeading -= 360;
-  while (targetHeading <= -180) targetHeading += 360;
+  // // Normalisasi target heading
+  // while (targetHeading > 180) targetHeading -= 360;
+  // while (targetHeading <= -180) targetHeading += 360;
 
-  float currentHeadingNow;
-  if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-    currentHeadingNow = gyroHeading;
-    xSemaphoreGive(sensorMutex);
-  }
+  // float currentHeadingNow;
+  // if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+  //   currentHeadingNow = gyroHeading;
+  //   xSemaphoreGive(sensorMutex);
+  // }
 
-  Serial.print("Gyro correction | Target: ");
-  Serial.print(targetHeading, 2);
-  Serial.print("° | Current: ");
-  Serial.print(currentHeadingNow, 2);
-  Serial.println("°");
+  // Serial.print("Gyro correction | Target: ");
+  // Serial.print(targetHeading, 2);
+  // Serial.print("° | Current: ");
+  // Serial.print(currentHeadingNow, 2);
+  // Serial.println("°");
 
-  int maxCorrections = 200;
-  int consecutiveSmallErrors = 0;
+  // int maxCorrections = 200;
+  // int consecutiveSmallErrors = 0;
 
-  for (int i = 0; i < maxCorrections; i++) {
-    float currentHeading;
-    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-      currentHeading = gyroHeading;
-      xSemaphoreGive(sensorMutex);
-    }
+  // for (int i = 0; i < maxCorrections; i++) {
+  //   float currentHeading;
+  //   if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+  //     currentHeading = gyroHeading;
+  //     xSemaphoreGive(sensorMutex);
+  //   }
 
-    float errorHeading = targetHeading - currentHeading;
+  //   float errorHeading = targetHeading - currentHeading;
 
-    // Normalisasi error
-    if (errorHeading > 180) {
-      errorHeading -= 360;
-    } else if (errorHeading <= -180) {
-      errorHeading += 360;
-    }
+  //   // Normalisasi error
+  //   if (errorHeading > 180) {
+  //     errorHeading -= 360;
+  //   } else if (errorHeading <= -180) {
+  //     errorHeading += 360;
+  //   }
 
     // Anti-jiggle
-    if (abs(errorHeading) < 0.5) {
-      consecutiveSmallErrors++;
-      if (consecutiveSmallErrors >= 2) {
-        Serial.print("✓ Gyro correction selesai | Final error: ");
-        Serial.print(errorHeading, 2);
-        Serial.println("°");
-        break;
-      }
-    } else {
-      consecutiveSmallErrors = 0;
-    }
+    // if (abs(errorHeading) < 0.5) {
+    //   consecutiveSmallErrors++;
+    //   if (consecutiveSmallErrors >= 2) {
+    //     Serial.print("✓ Gyro correction selesai | Final error: ");
+    //     Serial.print(errorHeading, 2);
+    //     Serial.println("°");
+    //     break;
+    //   }
+    // } else {
+    //   consecutiveSmallErrors = 0;
+    // }
 
     // PID
-    double error_gyro = errorHeading;
-    integral_gyro += error_gyro;
-    integral_gyro = constrain(integral_gyro, -15, 15);
+    // double error_gyro = errorHeading;
+    // integral_gyro += error_gyro;
+    // integral_gyro = constrain(integral_gyro, -15, 15);
 
-    double derivative_gyro = error_gyro - prev_error_gyro;
+    // double derivative_gyro = error_gyro - prev_error_gyro;
 
-    double correction_output = 6.0 * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output),35, 65);
+    // double correction_output = 6.0 * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
+    // int correctionSpeed = constrain(abs((int)correction_output),35, 55);
 
-    prev_error_gyro = error_gyro;
+    // prev_error_gyro = error_gyro;
 
-    Serial.print("#");
-    Serial.print(i + 1);
-    Serial.print(" Heading: ");
-    Serial.print(currentHeading, 2);
-    Serial.print("° | Error: ");
-    Serial.print(errorHeading, 1);
-    Serial.print("° | Speed: ");
-    Serial.print(correctionSpeed);
-    Serial.print(" | ");
+    // Serial.print("#");
+    // Serial.print(i + 1);
+    // Serial.print(" Heading: ");
+    // Serial.print(currentHeading, 2);
+    // Serial.print("° | Error: ");
+    // Serial.print(errorHeading, 1);
+    // Serial.print("° | Speed: ");
+    // Serial.print(correctionSpeed);
+    // Serial.print(" | ");
 
-    // GYRO: errorHeading < 0 → heading perlu naik → CCW
-    if (errorHeading < 0) {
-      Serial.println("CCW ↺");
-      setMotorSpeed(-correctionSpeed, correctionSpeed);
-    } else {
-      Serial.println("CW ↻");
-      setMotorSpeed(correctionSpeed, -correctionSpeed);
-    }
+  //   // GYRO: errorHeading < 0 → heading perlu naik → CCW
+  //   if (errorHeading < 0) {
+  //     Serial.println("CCW ↺");
+  //     setMotorSpeed(-correctionSpeed, correctionSpeed);
+  //   } else {
+  //     Serial.println("CW ↻");
+  //     setMotorSpeed(correctionSpeed, -correctionSpeed);
+  //   }
 
-    vTaskDelay(pdMS_TO_TICKS(5));
-    stopMotors();
-    vTaskDelay(pdMS_TO_TICKS(5));
-  }
+  //   vTaskDelay(pdMS_TO_TICKS(5));
+  //   stopMotors();
+  //   vTaskDelay(pdMS_TO_TICKS(5));
+  // }
 
   stopMotors();
   navigationActive = false;
@@ -953,24 +908,25 @@ void belok(double derajat) {
     xSemaphoreGive(sensorMutex);
   }
 
-  Serial.println("==================");
-  Serial.print("Final theta: ");
-  Serial.print(finalTheta, 2);
-  Serial.print("° (target ");
-  Serial.print(targetTheta, 2);
-  Serial.print("°, error ");
-  Serial.print(targetTheta - finalTheta, 2);
-  Serial.println("°)");
-  Serial.print("Final heading: ");
-  Serial.print(finalHeading, 2);
-  Serial.print("° (target ");
-  Serial.print(targetHeading, 2);
-  Serial.print("°, error ");
-  Serial.print(targetHeading - finalHeading, 2);
-  Serial.println("°)");
-  Serial.println("==================");
-  vTaskDelay(pdMS_TO_TICKS(200));
+  // Serial.println("==================");
+  // Serial.print("Final theta: ");
+  // Serial.print(finalTheta, 2);
+  // Serial.print("° (target ");
+  // Serial.print(targetTheta, 2);
+  // Serial.print("°, error ");
+  // Serial.print(targetTheta - finalTheta, 2);
+  // Serial.println("°)");
+  // Serial.print("Final heading: ");
+  // Serial.print(finalHeading, 2);
+  // Serial.print("° (target ");
+  // Serial.print(targetHeading, 2);
+  // Serial.print("°, error ");
+  // Serial.print(targetHeading - finalHeading, 2);
+  // Serial.println("°)");
+  // Serial.println("==================");
+  // vTaskDelay(pdMS_TO_TICKS(200));
 }
+
 void lompat(double jarak){
   vTaskDelay(pdMS_TO_TICKS(20));
   if (navigationActive) return;  // Mencegah navigasi bersamaan
@@ -1050,7 +1006,7 @@ void lompat(double jarak){
     prev_error_dist = error_dist;
 
     double speed_output = kp_dist * error_dist + ki_dist * integral_dist + kd_dist * derivative_dist;
-    int speed = constrain((int)speed_output, 25, 225);
+    int speed = constrain((int)speed_output, 25, 90);
 
     // Koreksi heading menggunakan gyro
     float headingError = startHeading - currentHeading;
@@ -1112,7 +1068,7 @@ void lompat(double jarak){
     prev_error_gyro = error_gyro;
 
     double correction_output = kp_gyro * error_gyro + ki_gyro * integral_gyro + kd_gyro * derivative_gyro;
-    int correctionSpeed = constrain(abs((int)correction_output), 40, 60);
+    int correctionSpeed = constrain(abs((int)correction_output), 30, 55);
 
     if (errorHeading < 0) {
       setMotorSpeed(-correctionSpeed, correctionSpeed);
@@ -1825,6 +1781,7 @@ void misiKanan() {
     maju(1.7,0,1);
     putarStepper(3, -1);
     belok(90);
+    vTaskDelay(pdMS_TO_TICKS(100));
     belok(90);    
     maju(1.7,0,1);
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -1854,25 +1811,31 @@ void misiKiri() {
   maju(0.18,0,0);
   belok(90);
   lompat(43.0);
+  vTaskDelay(pdMS_TO_TICKS(200));
   belok(-90);
 
-  for (int i = 0; i < 5; i++) {
-    maju(1.69,0,1);
+
+    maju(1.7,0,1);
     putarStepper(3, -1);
     belok(-90);
-    belok(-90);
-    maju(1.69,0,1);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    belok(-91);
+    maju(1.75, 0, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
     putarStepper(3, 1);
     maju(-0.15,0,0);
-    if (i == 4) break;
-    pivot(90);
-    // maju(0.15,0,0);
-    pivot(90);
-    maju(-0.15,0,0);
+    belok(-90);
+    maju(0.16,0,0);
+    maju(0.20,1,0);
+    belok(-90);
     vTaskDelay(pdMS_TO_TICKS(50));
-
-  }
+    maju(1.60,0,1); 
+    putarStepper(3, -1);
+    belok(-90);
+    maju(-0.16,0,0);
+    belok(-90);
+    maju(1.72,0,1);
+    putarStepper(3, 1);
 
   belok(90);
   belok(90);
@@ -2013,6 +1976,8 @@ void loop() {
     } else if (command == "L" || command == "l") {
       Serial.println("Starting misiKiri...");
       misiKiri();
+     buzzthetone();
+
     } else if (command == "K" || command == "k") {
       Serial.println("Starting kalibrasi line sensor...");
       kalibrasiLineSensor();
@@ -2031,6 +1996,7 @@ void loop() {
       Serial.println("Unknown BLE command");
     }
   }
+
 
   // Handle disconnection
   if (!deviceConnected) {
